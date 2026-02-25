@@ -42,11 +42,13 @@ if (isConfigValid) {
 // 2. CONSTANTS & DESIGN TOKENS
 // ============================================================================
 
+// Hardcoded Super Admins (Bypass all DB checks)
 const SUPER_ADMIN_EMAILS = [
   'anthonytosi@gmail.com',
   'atosi@sdl.com',
   'atosi@google.com'
 ];
+
 const DEFAULT_TEAM_MEMBERS = ['Anthony', 'Andrey', 'Annika', 'Mieke', 'Emily', 'Unassigned'];
 const STATUSES = ['Heads-up', 'Need Assessment', 'In Assessment', 'Screenshooting', 'In Progress', 'Blocked', 'Pending Reports', 'Completed'];
 const AVAILABLE_LOCALES = ['ar-SA', 'da-DK', 'de-DE', 'en-GB', 'es-ES', 'es-419', 'it-IT', 'fr-CA', 'fr-FR', 'ja-JP', 'ko-KR', 'nl-NL', 'no-NO', 'pt-PT', 'sv-SE', 'zh-TW'];
@@ -111,7 +113,7 @@ export default function App() {
   const currentUserDisplayName = user?.displayName || user?.email?.split('@')[0] || 'User';
 
   const isSuperAdmin = SUPER_ADMIN_EMAILS.includes(currentUserEmail);
-  const isDelegatedAdmin = settings.adminEmails?.includes(currentUserEmail);
+  const isDelegatedAdmin = (settings.adminEmails || []).includes(currentUserEmail);
   const isAdmin = isSuperAdmin || isDelegatedAdmin;
 
   // --- Robust Access Control (Memoized for Performance) ---
@@ -120,9 +122,14 @@ export default function App() {
     if (isAdmin) return { hasAccess: true, role: 'admin', allowedPAs: ['all'] };
 
     const domain = currentUserEmail.split('@')[1] || '';
-    const isDomainAllowed = settings.allowedDomains?.includes(domain);
-    const isUserExplicitlyAllowed = settings.allowedUsers?.includes(currentUserEmail);
-    const myGroups = settings.userGroups?.filter(g => g.members?.map(m => m?.toLowerCase() || '').includes(currentUserEmail)) || [];
+    const isDomainAllowed = (settings.allowedDomains || []).includes(domain);
+    const isUserExplicitlyAllowed = (settings.allowedUsers || []).includes(currentUserEmail);
+
+    // SAFE ARRAY MAPPING: Prevents TypeError if g.members is undefined
+    const myGroups = (settings.userGroups || []).filter(g => {
+      const members = g.members || [];
+      return members.map(m => (m || '').toLowerCase()).includes(currentUserEmail);
+    });
 
     if (myGroups.length === 0 && !isDomainAllowed && !isUserExplicitlyAllowed) {
       return { hasAccess: false, role: 'none', allowedPAs: [] };
@@ -201,6 +208,9 @@ export default function App() {
           .catch(err => console.log("Init settings skipped (Insufficient permissions):", err));
       }
       setSettingsLoaded(true);
+    }, (error) => {
+      console.error("Settings fetch error:", error);
+      setSettingsLoaded(true); // Proceed anyway so we don't get stuck on loading screen
     });
     return () => unsubscribeSettings();
   }, [user]);
@@ -228,6 +238,9 @@ export default function App() {
         const updated = data.find(p => p.id === prev.id);
         return updated || prev;
       });
+    }, (error) => {
+      console.error("Projects Fetch Error:", error);
+      addToast("Connection issue with Database", "error");
     });
 
     const annRef = collection(db, 'artifacts', appId, 'public', 'data', 'announcements');
@@ -240,10 +253,10 @@ export default function App() {
       }
       data.sort((a, b) => b.timestamp - a.timestamp);
       setAnnouncements(data);
-    });
+    }, (error) => console.error("Announcements Fetch Error:", error));
 
     return () => { unsubscribeProjects(); unsubscribeAnn(); };
-  }, [user, hasAccess, allowedPAsString, settingsLoaded]);
+  }, [user, hasAccess, allowedPAsString, settingsLoaded, addToast]);
 
   useEffect(() => {
     if (isDarkMode) document.documentElement.classList.add('dark');
@@ -261,7 +274,12 @@ export default function App() {
 
   const allActivity = useMemo(() => {
     const act = [];
-    projects.forEach(p => p.comments?.forEach(c => act.push({ ...c, projectName: p.projectName, projectId: p.id })));
+    (projects || []).forEach(p => {
+      // Safe Array Check
+      if (Array.isArray(p.comments)) {
+        p.comments.forEach(c => act.push({ ...c, projectName: p.projectName, projectId: p.id }));
+      }
+    });
     return act.sort((a, b) => b.timestamp - a.timestamp);
   }, [projects]);
 
@@ -269,9 +287,9 @@ export default function App() {
     let filtered = projects.filter(p => {
       const search = searchQuery.toLowerCase();
       // SAFEGUARDS: Ensure all strings are defined before processing to prevent TypeErrors
-      const bug = (p.bugNumber || '').toLowerCase();
-      const name = (p.projectName || '').toLowerCase();
-      const pa = (p.productArea || '').trim();
+      const bug = String(p.bugNumber || '').toLowerCase();
+      const name = String(p.projectName || '').toLowerCase();
+      const pa = String(p.productArea || '').trim();
       const lead = p.assignedLead || 'Unassigned';
 
       return (bug.includes(search) || name.includes(search)) &&
@@ -288,6 +306,10 @@ export default function App() {
       if (sortConfig.key === 'clientETA' || sortConfig.key === 'createdAt') {
         valA = valA ? new Date(valA).getTime() : 0;
         valB = valB ? new Date(valB).getTime() : 0;
+      } else {
+        // Safe String comparison to prevent undefined sorting crashes
+        valA = String(valA || '').toLowerCase();
+        valB = String(valB || '').toLowerCase();
       }
 
       if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -801,7 +823,7 @@ function AdminView({ settings, onUpdateSettings, productAreas, isSuperAdmin, onP
   };
 
   const removeSettingItem = (key, value) => {
-    onUpdateSettings({ ...settings, [key]: settings[key].filter(x => x !== value) });
+    onUpdateSettings({ ...settings, [key]: (settings[key] || []).filter(x => x !== value) });
   };
 
   const addGroup = () => {
@@ -833,7 +855,7 @@ function AdminView({ settings, onUpdateSettings, productAreas, isSuperAdmin, onP
               <div className="flex gap-5 items-center overflow-hidden">
                 <button onClick={() => onTogglePin(ann.id, ann.isPinned)} className={`p-2 rounded-xl border transition-all ${ann.isPinned ? 'text-amber-600 bg-amber-100 border-amber-300' : 'text-slate-400 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}><Pin size={16} /></button>
                 <div className="truncate">
-                  <div className="text-[9px] font-black uppercase text-indigo-500 tracking-widest mb-1">{ann.targetPA}</div>
+                  <div className="text-[9px] font-black uppercase text-indigo-500 tracking-widest mb-1">{ann.targetPA || 'GENERAL'}</div>
                   <div className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">{ann.title}</div>
                 </div>
               </div>
@@ -918,8 +940,8 @@ function AdminView({ settings, onUpdateSettings, productAreas, isSuperAdmin, onP
                 }
               }} />
               <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-                {group.members?.map(m => (
-                  <div key={m} className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-900/80 rounded-lg text-[10px] font-bold text-slate-700 dark:text-slate-300">{m}<button onClick={() => onUpdateSettings({ ...settings, userGroups: settings.userGroups.map(g => g.id === group.id ? { ...g, members: g.members.filter(x => x !== m) } : g) })} className="hover:text-red-500"><X size={12} /></button></div>
+                {(group.members || []).map(m => (
+                  <div key={m} className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-900/80 rounded-lg text-[10px] font-bold text-slate-700 dark:text-slate-300">{m}<button onClick={() => onUpdateSettings({ ...settings, userGroups: settings.userGroups.map(g => g.id === group.id ? { ...g, members: (g.members || []).filter(x => x !== m) } : g) })} className="hover:text-red-500"><X size={12} /></button></div>
                 ))}
                 {(!group.members || group.members.length === 0) && <span className="text-xs text-slate-400 font-medium italic">No identities mapped.</span>}
               </div>
@@ -951,7 +973,7 @@ function AnnouncementHistory({ announcements, onClose }) {
               <h3 className="text-lg font-black text-slate-900 dark:text-white mb-3 leading-snug">{ann.title}</h3>
               <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed font-medium">{ann.content}</p>
               <div className="mt-6 pt-6 border-t border-black/5 dark:border-white/5 flex items-center gap-2 text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                <div className="w-5 h-5 rounded-md bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300">{ann.author?.charAt(0)}</div> {ann.author}
+                <div className="w-5 h-5 rounded-md bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300">{String(ann.author || 'U').charAt(0)}</div> {ann.author || 'User'}
               </div>
             </div>
           ))}
@@ -1006,7 +1028,7 @@ function ProjectDetails({ project, onClose, onEdit, onUpdate, isAdmin, canEdit, 
           <h2 className="text-3xl font-black text-slate-900 dark:text-white mb-4 leading-tight">{project.projectName}</h2>
           <div className="flex items-center gap-4 mb-8">
             <span className={`px-3 py-1.5 rounded-xl text-[10px] font-black border uppercase tracking-widest ${getPAColor(project.productArea)}`}>{project.productArea || 'General'}</span>
-            <span className="text-xs text-slate-400 font-bold flex items-center gap-2"><div className="w-5 h-5 rounded bg-slate-200 dark:bg-slate-700 text-[10px] flex items-center justify-center text-slate-600 dark:text-slate-300">{project.assignedLead?.charAt(0)}</div>{project.assignedLead}</span>
+            <span className="text-xs text-slate-400 font-bold flex items-center gap-2"><div className="w-5 h-5 rounded bg-slate-200 dark:bg-slate-700 text-[10px] flex items-center justify-center text-slate-600 dark:text-slate-300">{String(project.assignedLead || 'U').charAt(0)}</div>{project.assignedLead}</span>
           </div>
           <div className="flex gap-4 items-center">
             {canEdit && <button onClick={onEdit} className="px-6 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-black text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition-all"><Edit2 size={16} /> Edit Entry</button>}
@@ -1025,11 +1047,11 @@ function ProjectDetails({ project, onClose, onEdit, onUpdate, isAdmin, canEdit, 
             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2.5"><Globe2 size={16} className="text-indigo-600" /> Locale Footprint Matrix</h3>
             <div className="grid grid-cols-3 gap-3">
               {AVAILABLE_LOCALES.map(loc => {
-                const current = project.locales?.find(l => l.name === loc);
+                const current = (project.locales || []).find(l => l.name === loc);
                 return (
                   <button key={loc} disabled={!canEdit} onClick={() => {
                     const next = current?.status === 'Passed' ? 'Failed' : current?.status === 'Failed' ? 'Pending' : 'Passed';
-                    const list = current ? project.locales.map(l => l.name === loc ? { ...l, status: next } : l) : [...(project.locales || []), { name: loc, status: 'Passed' }];
+                    const list = current ? (project.locales || []).map(l => l.name === loc ? { ...l, status: next } : l) : [...(project.locales || []), { name: loc, status: 'Passed' }];
                     onUpdate(project.id, { locales: list });
                   }} className={`text-center py-4 px-2 rounded-2xl border text-[10px] font-black transition-all ${current?.status === 'Passed' ? 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-400' : current?.status === 'Failed' ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400 hover:border-indigo-300'}`}>
                     <div className="mb-1 text-xs">{loc}</div>
@@ -1047,10 +1069,10 @@ function ProjectDetails({ project, onClose, onEdit, onUpdate, isAdmin, canEdit, 
               <button onClick={() => { if (comment) { onUpdate(project.id, { comments: [...(project.comments || []), { id: Date.now(), author: currentUserDisplayName, text: comment, timestamp: Date.now() }] }); setComment(''); } }} className="bg-indigo-600 text-white p-4 rounded-2xl shadow-lg shadow-indigo-600/20 hover:bg-indigo-700 active:scale-95 transition-all"><Send size={20} /></button>
             </div>
             <div className="space-y-4">
-              {(project.comments || []).slice().reverse().map(c => (
+              {(Array.isArray(project.comments) ? project.comments : []).slice().reverse().map(c => (
                 <div key={c.id} className="p-6 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-slate-100 dark:border-slate-800">
                   <div className="flex justify-between text-[10px] font-black text-slate-400 mb-3 uppercase tracking-widest flex items-center gap-2">
-                    <span className="flex items-center gap-2"><div className="w-5 h-5 rounded bg-slate-200 dark:bg-slate-700 text-[10px] flex items-center justify-center text-slate-600 dark:text-slate-300">{c.author?.charAt(0)}</div>{c.author}</span>
+                    <span className="flex items-center gap-2"><div className="w-5 h-5 rounded bg-slate-200 dark:bg-slate-700 text-[10px] flex items-center justify-center text-slate-600 dark:text-slate-300">{String(c.author || 'U').charAt(0)}</div>{c.author}</span>
                     <span>{new Date(c.timestamp).toLocaleString()}</span>
                   </div>
                   <div className="text-sm text-slate-700 dark:text-slate-300 font-medium leading-relaxed">{c.text}</div>
@@ -1084,7 +1106,7 @@ function ActivityFeed({ activities, onClose, onOpen }) {
                 </div>
                 <div className="text-sm text-slate-700 dark:text-slate-300 mb-3 font-medium line-clamp-3">{act.text}</div>
                 <div className="text-[9px] font-black text-slate-400 uppercase tracking-tighter flex items-center gap-2">
-                  <div className="w-4 h-4 rounded bg-slate-200 dark:bg-slate-700 flex items-center justify-center">{act.author?.charAt(0)}</div> Logged by {act.author}
+                  <div className="w-4 h-4 rounded bg-slate-200 dark:bg-slate-700 flex items-center justify-center">{String(act.author || 'U').charAt(0)}</div> Logged by {act.author}
                 </div>
               </div>
             </div>
