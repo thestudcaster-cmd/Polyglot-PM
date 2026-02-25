@@ -78,7 +78,7 @@ const getPAColor = (paName) => {
 // 3. MAIN APPLICATION COMPONENT
 // ============================================================================
 
-export default function App() {
+function PolyglotDashboard() {
   // Core State
   const [user, setUser] = useState(null);
   const [projects, setProjects] = useState([]);
@@ -730,7 +730,7 @@ function TableView({ projects, selectedIds, onSelect, onOpen, onUpdateProject, c
                 <td className="px-8 py-6"><span className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-xl text-[10px] font-black border ${style.bg} ${style.text} ${style.border}`}><span className={`w-1.5 h-1.5 rounded-full ${style.dot}`}></span>{p.status}</span></td>
                 <td className="px-8 py-6">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-[10px] font-black text-slate-500 dark:text-slate-400">{p.assignedLead?.charAt(0)}</div>
+                    <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-[10px] font-black text-slate-500 dark:text-slate-400">{String(p.assignedLead || 'U').charAt(0)}</div>
                     <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{p.assignedLead}</span>
                   </div>
                 </td>
@@ -773,7 +773,7 @@ function KanbanColumn({ status, projects, onOpen }) {
             <div className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-5 leading-snug">{p.projectName}</div>
             <div className="flex justify-between items-end border-t border-slate-50 dark:border-slate-700/50 pt-4 mt-auto">
               <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black border uppercase tracking-tighter ${getPAColor(p.productArea)}`}>{p.productArea || 'General'}</span>
-              <div className="w-7 h-7 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-[10px] font-black text-slate-500 dark:text-slate-400">{p.assignedLead?.charAt(0)}</div>
+              <div className="w-7 h-7 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-[10px] font-black text-slate-500 dark:text-slate-400">{String(p.assignedLead || 'U').charAt(0)}</div>
             </div>
           </div>
         ))}
@@ -839,13 +839,13 @@ function AdminView({ settings, onUpdateSettings, productAreas, isSuperAdmin, onP
       <div className="bg-white dark:bg-slate-800 p-10 rounded-[40px] border border-slate-100 dark:border-slate-700 shadow-xl">
         <h3 className="text-lg font-black text-slate-900 dark:text-white mb-8 flex items-center gap-3"><Megaphone className="text-indigo-500" /> Broadcast Engine</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          <input className="p-4 bg-slate-50 dark:bg-slate-900 border-none rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-indigo-500/20" value={inputs.annTitle} onChange={e => setInputs({ ...inputs, annTitle: e.target.value })} placeholder="Headline Subject..." />
-          <select className="p-4 bg-slate-50 dark:bg-slate-900 border-none rounded-2xl text-sm font-bold uppercase tracking-wider outline-none" value={inputs.annTarget} onChange={e => setInputs({ ...inputs, annTarget: e.target.value })}>
+          <input className="p-4 bg-slate-50 dark:bg-slate-900 border-none rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-indigo-500/20 dark:text-white" value={inputs.annTitle} onChange={e => setInputs({ ...inputs, annTitle: e.target.value })} placeholder="Headline Subject..." />
+          <select className="p-4 bg-slate-50 dark:bg-slate-900 border-none rounded-2xl text-sm font-bold uppercase tracking-wider outline-none dark:text-white" value={inputs.annTarget} onChange={e => setInputs({ ...inputs, annTarget: e.target.value })}>
             <option value="general">Target: Global Access</option>
             {productAreas.map(pa => <option key={pa} value={pa}>Target PA: {pa}</option>)}
           </select>
         </div>
-        <textarea className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-none rounded-2xl text-sm font-medium mb-6 min-h-[120px] outline-none focus:ring-2 ring-indigo-500/20" value={inputs.annContent} onChange={e => setInputs({ ...inputs, annContent: e.target.value })} placeholder="Message content..." />
+        <textarea className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-none rounded-2xl text-sm font-medium mb-6 min-h-[120px] outline-none focus:ring-2 ring-indigo-500/20 dark:text-white" value={inputs.annContent} onChange={e => setInputs({ ...inputs, annContent: e.target.value })} placeholder="Message content..." />
         <button onClick={() => { onPostAnnouncement(inputs.annTitle, inputs.annContent, inputs.annTarget); setInputs({ ...inputs, annTitle: '', annContent: '' }); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-2xl font-black text-xs transition-colors shadow-lg shadow-indigo-500/20">Publish Broadcast</button>
 
         <div className="mt-12 space-y-3 border-t border-slate-100 dark:border-slate-700 pt-8">
@@ -859,7 +859,7 @@ function AdminView({ settings, onUpdateSettings, productAreas, isSuperAdmin, onP
                   <div className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">{ann.title}</div>
                 </div>
               </div>
-              <button onClick={() => onDeleteAnnouncement(ann.id)} className="p-3 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"><Trash size={18} /></button>
+              <button onClick={() => onDeleteAnnouncement(ann.id)} className="p-3 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors"><Trash size={18} /></button>
             </div>
           ))}
         </div>
@@ -873,7 +873,7 @@ function AdminView({ settings, onUpdateSettings, productAreas, isSuperAdmin, onP
             {/* Admins */}
             <div>
               <label className="block text-[10px] font-black text-slate-400 uppercase mb-3">System Admins</label>
-              <input className="w-full p-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl text-xs font-bold outline-none mb-2" value={inputs.admin} onChange={e => setInputs({ ...inputs, admin: e.target.value })} onKeyDown={e => e.key === 'Enter' && updateSettingList('adminEmails', inputs.admin)} placeholder="Add admin email..." />
+              <input className="w-full p-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl text-xs font-bold outline-none mb-2 dark:text-white focus:ring-2 ring-indigo-500/20" value={inputs.admin} onChange={e => setInputs({ ...inputs, admin: e.target.value })} onKeyDown={e => e.key === 'Enter' && updateSettingList('adminEmails', inputs.admin)} placeholder="Add admin email..." />
               <div className="flex flex-wrap gap-2 mt-4">
                 {SUPER_ADMIN_EMAILS.map(email => (
                   <div key={email} className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-800/50 text-[10px] font-black text-amber-700 dark:text-amber-500 uppercase tracking-widest">
@@ -886,13 +886,13 @@ function AdminView({ settings, onUpdateSettings, productAreas, isSuperAdmin, onP
             {/* Domains */}
             <div>
               <label className="block text-[10px] font-black text-slate-400 uppercase mb-3">Whitelist Domains</label>
-              <input className="w-full p-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl text-xs font-bold outline-none mb-2" value={inputs.domain} onChange={e => setInputs({ ...inputs, domain: e.target.value })} onKeyDown={e => e.key === 'Enter' && updateSettingList('allowedDomains', inputs.domain)} placeholder="e.g. company.com..." />
+              <input className="w-full p-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl text-xs font-bold outline-none mb-2 dark:text-white focus:ring-2 ring-indigo-500/20" value={inputs.domain} onChange={e => setInputs({ ...inputs, domain: e.target.value })} onKeyDown={e => e.key === 'Enter' && updateSettingList('allowedDomains', inputs.domain)} placeholder="e.g. company.com..." />
               <RenderList items={settings.allowedDomains || []} listKey="allowedDomains" icon={Globe} color="blue" onRemove={removeSettingItem} />
             </div>
             {/* Users */}
             <div>
               <label className="block text-[10px] font-black text-slate-400 uppercase mb-3">Whitelist Emails</label>
-              <input className="w-full p-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl text-xs font-bold outline-none mb-2" value={inputs.user} onChange={e => setInputs({ ...inputs, user: e.target.value })} onKeyDown={e => e.key === 'Enter' && updateSettingList('allowedUsers', inputs.user)} placeholder="Specific user email..." />
+              <input className="w-full p-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl text-xs font-bold outline-none mb-2 dark:text-white focus:ring-2 ring-indigo-500/20" value={inputs.user} onChange={e => setInputs({ ...inputs, user: e.target.value })} onKeyDown={e => e.key === 'Enter' && updateSettingList('allowedUsers', inputs.user)} placeholder="Specific user email..." />
               <RenderList items={settings.allowedUsers || []} listKey="allowedUsers" icon={Mail} color="emerald" onRemove={removeSettingItem} />
             </div>
           </div>
@@ -903,10 +903,10 @@ function AdminView({ settings, onUpdateSettings, productAreas, isSuperAdmin, onP
       <div className="bg-white dark:bg-slate-800 p-10 rounded-[40px] border border-slate-100 dark:border-slate-700 shadow-xl">
         <h3 className="text-lg font-black text-slate-900 dark:text-white mb-8 flex items-center gap-3"><Layers className="text-indigo-500" /> Define Access Matrix</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-end">
-          <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Matrix Name</label><input className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-none rounded-2xl text-sm font-bold outline-none" value={newGroup.name} onChange={e => setNewGroup({ ...newGroup, name: e.target.value })} placeholder="e.g. Vendors" /></div>
-          <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Permissions</label><select className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-none rounded-2xl text-sm font-bold outline-none" value={newGroup.role} onChange={e => setNewGroup({ ...newGroup, role: e.target.value })}><option value="viewer">Read Only Viewer</option><option value="editor">Full Editor</option></select></div>
-          <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Scope Horizon</label><select className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-none rounded-2xl text-sm font-bold outline-none" value={newGroup.scope} onChange={e => setNewGroup({ ...newGroup, scope: e.target.value })}><option value="all">Global Access</option><option value="scoped">Restricted Silos</option></select></div>
-          <button onClick={addGroup} className="bg-indigo-600 text-white h-[52px] rounded-2xl font-black text-xs shadow-lg shadow-indigo-500/20">Construct Matrix</button>
+          <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Matrix Name</label><input className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-none rounded-2xl text-sm font-bold outline-none dark:text-white focus:ring-2 ring-indigo-500/20" value={newGroup.name} onChange={e => setNewGroup({ ...newGroup, name: e.target.value })} placeholder="e.g. Vendors" /></div>
+          <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Permissions</label><select className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-none rounded-2xl text-sm font-bold outline-none dark:text-white focus:ring-2 ring-indigo-500/20" value={newGroup.role} onChange={e => setNewGroup({ ...newGroup, role: e.target.value })}><option value="viewer">Read Only Viewer</option><option value="editor">Full Editor</option></select></div>
+          <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Scope Horizon</label><select className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-none rounded-2xl text-sm font-bold outline-none dark:text-white focus:ring-2 ring-indigo-500/20" value={newGroup.scope} onChange={e => setNewGroup({ ...newGroup, scope: e.target.value })}><option value="all">Global Access</option><option value="scoped">Restricted Silos</option></select></div>
+          <button onClick={addGroup} className="bg-indigo-600 text-white h-[52px] rounded-2xl font-black text-xs shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 active:scale-95 transition-all">Construct Matrix</button>
         </div>
         {newGroup.scope === 'scoped' && (
           <div className="mt-8 p-8 bg-slate-50 dark:bg-slate-900/50 rounded-[2rem] border border-slate-100 dark:border-slate-800 flex flex-wrap gap-3">
@@ -929,10 +929,10 @@ function AdminView({ settings, onUpdateSettings, productAreas, isSuperAdmin, onP
                   <span className="text-[9px] font-black uppercase text-slate-500 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700">{group.scope === 'all' ? 'Global' : `Scoped: ${group.scopedPAs?.length || 0}`}</span>
                 </div>
               </div>
-              <button onClick={() => onUpdateSettings({ ...settings, userGroups: settings.userGroups.filter(g => g.id !== group.id) })} className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors"><Trash size={18} /></button>
+              <button onClick={() => onUpdateSettings({ ...settings, userGroups: settings.userGroups.filter(g => g.id !== group.id) })} className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors"><Trash size={18} /></button>
             </div>
             <div className="mt-auto">
-              <input className="w-full p-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl text-xs font-bold outline-none mb-4 focus:ring-2 ring-indigo-500/20" placeholder="Type email and press Enter..." onKeyDown={e => {
+              <input className="w-full p-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl text-xs font-bold outline-none mb-4 focus:ring-2 ring-indigo-500/20 dark:text-white" placeholder="Type email and press Enter..." onKeyDown={e => {
                 if (e.key === 'Enter' && e.target.value) {
                   const newGroups = settings.userGroups.map(g => g.id === group.id ? { ...g, members: [...new Set([...(g.members || []), e.target.value.toLowerCase().trim()])] } : g);
                   onUpdateSettings({ ...settings, userGroups: newGroups });
@@ -1033,7 +1033,7 @@ function ProjectDetails({ project, onClose, onEdit, onUpdate, isAdmin, canEdit, 
           <div className="flex gap-4 items-center">
             {canEdit && <button onClick={onEdit} className="px-6 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-black text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition-all"><Edit2 size={16} /> Edit Entry</button>}
             <span className={`px-6 py-3 rounded-2xl text-xs font-black border flex items-center gap-2 ${getStatusStyle(project.status).bg} ${getStatusStyle(project.status).text} ${getStatusStyle(project.status).border}`}><span className={`w-2 h-2 rounded-full ${getStatusStyle(project.status).dot}`}></span>{project.status}</span>
-            {isAdmin && <button onClick={() => onDelete(project.id)} className="ml-auto p-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors"><Trash2 size={20} /></button>}
+            {isAdmin && <button onClick={() => onDelete(project.id)} className="ml-auto p-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors"><Trash2 size={20} /></button>}
           </div>
         </div>
         <div className="flex-1 overflow-y-auto p-10 space-y-12">
@@ -1115,5 +1115,71 @@ function ActivityFeed({ activities, onClose, onOpen }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// ============================================================================
+// 5. SNARKY ERROR BOUNDARY
+// ============================================================================
+
+class SnarkyErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null, errorInfo: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("🔥 REACT FATAL CRASH:", error, errorInfo);
+    this.setState({ errorInfo });
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex h-screen w-full items-center justify-center bg-slate-950 text-slate-200 font-sans p-6">
+          <div className="bg-slate-900 border border-red-500/30 p-8 rounded-[32px] shadow-2xl max-w-2xl w-full">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-14 h-14 bg-red-500/20 text-red-500 flex items-center justify-center rounded-2xl shrink-0">
+                <AlertCircle size={28} />
+              </div>
+              <div>
+                <h1 className="text-2xl font-black text-white">Oops. The Matrix Broke.</h1>
+                <p className="text-red-400 text-sm">A fatal render error occurred. Take a screenshot of the technical jargon below so we can fix it.</p>
+              </div>
+            </div>
+
+            <div className="bg-black/50 p-5 rounded-2xl border border-red-500/20 font-mono text-xs overflow-auto max-h-64 mb-6">
+              <div className="text-red-400 font-bold mb-3 text-sm">
+                {this.state.error && this.state.error.toString()}
+              </div>
+              <div className="text-slate-500 leading-relaxed whitespace-pre-wrap">
+                {this.state.errorInfo && this.state.errorInfo.componentStack}
+              </div>
+            </div>
+
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full bg-red-600 hover:bg-red-700 text-white font-black py-4 rounded-2xl transition-all shadow-lg shadow-red-600/20"
+            >
+              Reboot System
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// Export the app wrapped in the Error Boundary so it catches EVERYTHING
+export default function App() {
+  return (
+    <SnarkyErrorBoundary>
+      <PolyglotDashboard />
+    </SnarkyErrorBoundary>
   );
 }
