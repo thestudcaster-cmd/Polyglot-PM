@@ -13,15 +13,7 @@ import {
 } from 'lucide-react';
 
 // --- Firebase Initialization (Rule 1 & 3 compliance) ---
-const firebaseConfig = {
-  apiKey: "AIzaSyC6xIVImyXjYqtWQtdOkFlO3aBtJLGAcc8",
-  authDomain: "polyglot-pm.firebaseapp.com",
-  projectId: "polyglot-pm",
-  storageBucket: "polyglot-pm.firebasestorage.app",
-  messagingSenderId: "665653580466",
-  appId: "1:665653580466:web:b72025d60f51bc3a85efab",
-  measurementId: "G-RPL0YK36R7"
-};
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -45,6 +37,34 @@ const AVAILABLE_LOCALES = [
   'fr-CA', 'fr-FR', 'ja-JP', 'ko-KR', 'nl-NL', 'no-NO', 'pt-PT',
   'sv-SE', 'zh-TW'
 ];
+
+// --- New Color Helpers ---
+const STATUS_COLORS = {
+  'Heads-up': { bg: 'bg-fuchsia-100 dark:bg-fuchsia-900/30', text: 'text-fuchsia-700 dark:text-fuchsia-400', border: 'border-fuchsia-200 dark:border-fuchsia-800', dot: 'bg-fuchsia-500' },
+  'Need Assessment': { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-400', border: 'border-amber-200 dark:border-amber-800', dot: 'bg-amber-500' },
+  'In Assessment': { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-400', border: 'border-orange-200 dark:border-orange-800', dot: 'bg-orange-500' },
+  'Screenshooting': { bg: 'bg-pink-100 dark:bg-pink-900/30', text: 'text-pink-700 dark:text-pink-400', border: 'border-pink-200 dark:border-pink-800', dot: 'bg-pink-500' },
+  'In Progress': { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-400', border: 'border-blue-200 dark:border-blue-800', dot: 'bg-blue-500' },
+  'Blocked': { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400', border: 'border-red-200 dark:border-red-800', dot: 'bg-red-500' },
+  'Pending Reports': { bg: 'bg-teal-100 dark:bg-teal-900/30', text: 'text-teal-700 dark:text-teal-400', border: 'border-teal-200 dark:border-teal-800', dot: 'bg-teal-500' },
+  'Completed': { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', border: 'border-green-200 dark:border-green-800', dot: 'bg-green-500' }
+};
+const getStatusStyle = (status) => STATUS_COLORS[status] || { bg: 'bg-slate-100 dark:bg-slate-800', text: 'text-slate-700 dark:text-slate-300', border: 'border-slate-200 dark:border-slate-700', dot: 'bg-slate-500' };
+
+const PA_PALETTE = [
+  'bg-cyan-100 text-cyan-800 border-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400 dark:border-cyan-800',
+  'bg-violet-100 text-violet-800 border-violet-200 dark:bg-violet-900/30 dark:text-violet-400 dark:border-violet-800',
+  'bg-lime-100 text-lime-800 border-lime-200 dark:bg-lime-900/30 dark:text-lime-400 dark:border-lime-800',
+  'bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800',
+  'bg-sky-100 text-sky-800 border-sky-200 dark:bg-sky-900/30 dark:text-sky-400 dark:border-sky-800',
+  'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800',
+];
+const getPAColor = (paName) => {
+  if (!paName) return 'bg-slate-100 text-slate-800 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700';
+  let hash = 0;
+  for (let i = 0; i < paName.length; i++) hash = paName.charCodeAt(i) + ((hash << 5) - hash);
+  return PA_PALETTE[Math.abs(hash) % PA_PALETTE.length];
+};
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -686,11 +706,16 @@ export default function App() {
                           <td className="px-6 py-4">
                             <div className="font-mono text-xs text-indigo-600 dark:text-indigo-400 font-medium mb-1">{project.bugNumber || 'No Bug ID'}</div>
                             <div className="font-semibold text-slate-800 dark:text-slate-200">{project.projectName}</div>
-                            <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{project.productArea} • {project.devices}</div>
+                            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                              <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold border ${getPAColor(project.productArea)}`}>
+                                {project.productArea || 'No PA'}
+                              </span>
+                              <span className="text-xs text-slate-500 dark:text-slate-400 flex-shrink-0">• {project.devices}</span>
+                            </div>
                           </td>
                           <td className="px-6 py-4">
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
-                              <span className={`w-1.5 h-1.5 rounded-full ${project.status === 'Completed' ? 'bg-green-500' : project.status === 'Blocked' ? 'bg-red-500' : 'bg-indigo-500'}`}></span>
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${getStatusStyle(project.status).bg} ${getStatusStyle(project.status).text} ${getStatusStyle(project.status).border}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${getStatusStyle(project.status).dot}`}></span>
                               {project.status}
                             </span>
                           </td>
@@ -747,14 +772,14 @@ export default function App() {
                 return (
                   <div key={status} className="flex flex-col h-[450px]">
                     <div className="flex items-center justify-between mb-3 px-1">
-                      <h3 className="font-semibold text-slate-700 text-sm flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${status === 'Completed' ? 'bg-green-500' : status === 'Blocked' ? 'bg-red-500' : 'bg-indigo-500'}`}></span>
+                      <h3 className="font-semibold text-slate-700 dark:text-slate-300 text-sm flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full ${getStatusStyle(status).dot}`}></span>
                         {status}
                       </h3>
-                      <span className="text-xs font-medium bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full">{statusProjects.length}</span>
+                      <span className="text-xs font-medium bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full">{statusProjects.length}</span>
                     </div>
 
-                    <div className="flex-1 flex flex-col gap-3 overflow-y-auto bg-slate-100/50 rounded-xl p-3 border border-slate-200/50 shadow-inner">
+                    <div className="flex-1 flex flex-col gap-3 overflow-y-auto bg-slate-100/50 dark:bg-slate-800/30 rounded-xl p-3 border border-slate-200/50 dark:border-slate-700/50 shadow-inner">
                       {statusProjects.map(project => {
                         const prio = PRIORITIES.find(p => p.id === project.priority) || PRIORITIES[2];
                         return (
@@ -764,15 +789,19 @@ export default function App() {
                             className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all group"
                           >
                             <div className="flex justify-between items-start mb-2">
-                              <span className="font-mono text-xs text-indigo-600 font-medium bg-indigo-50 px-1.5 py-0.5 rounded">{project.bugNumber}</span>
+                              <span className="font-mono text-xs text-indigo-600 dark:text-indigo-400 font-medium bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded">{project.bugNumber}</span>
                               <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${prio.color}`}>{prio.id}</span>
                             </div>
-                            <h4 className="font-bold text-slate-800 text-sm mb-1 leading-tight">{project.projectName}</h4>
-                            <p className="text-xs text-slate-500 mb-3">{project.productArea}</p>
+                            <h4 className="font-bold text-slate-800 dark:text-slate-200 text-sm mb-1 leading-tight">{project.projectName}</h4>
+                            <div className="mb-3 flex items-center gap-1.5 flex-wrap">
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${getPAColor(project.productArea)}`}>
+                                {project.productArea || 'No PA'}
+                              </span>
+                            </div>
 
-                            <div className="flex items-center justify-between mt-auto pt-3 border-t border-slate-100">
+                            <div className="flex items-center justify-between mt-auto pt-3 border-t border-slate-100 dark:border-slate-700">
                               <div className="flex items-center gap-1.5" title={`Lead: ${project.assignedLead}`}>
-                                <div className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-600">
+                                <div className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-600 dark:text-slate-300">
                                   {project.assignedLead?.charAt(0)}
                                 </div>
                               </div>
@@ -820,7 +849,7 @@ export default function App() {
                             <span className="text-slate-500">{count} ({percentage}%)</span>
                           </div>
                           <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2">
-                            <div className={`h-2 rounded-full ${status === 'Completed' ? 'bg-green-500' : status === 'Blocked' ? 'bg-red-500' : 'bg-indigo-500'}`} style={{ width: `${percentage}%` }}></div>
+                            <div className={`h-2 rounded-full ${getStatusStyle(status).dot}`} style={{ width: `${percentage}%` }}></div>
                           </div>
                         </div>
                       );
@@ -900,6 +929,7 @@ export default function App() {
           onClose={() => { setIsFormOpen(false); setSelectedProject(null); }}
           onSave={handleSaveProject}
           teamMembers={dynamicTeamMembers}
+          uniqueProductAreas={uniqueProductAreas}
         />
       )}
 
@@ -936,7 +966,7 @@ const parseMarkdown = (text) => {
 
 // --- Subcomponents ---
 
-function ProjectForm({ project, onClose, onSave, teamMembers }) {
+function ProjectForm({ project, onClose, onSave, teamMembers, uniqueProductAreas }) {
   const [formData, setFormData] = useState(project || {
     bugNumber: '',
     projectName: '',
@@ -1010,7 +1040,10 @@ function ProjectForm({ project, onClose, onSave, teamMembers }) {
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1.5">Product Area</label>
-              <input required name="productArea" value={formData.productArea} onChange={handleChange} placeholder="e.g. Search, Maps" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
+              <input required name="productArea" list="pa-list" value={formData.productArea} onChange={handleChange} placeholder="e.g. Search, Maps" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none" autoComplete="off" />
+              <datalist id="pa-list">
+                {uniqueProductAreas?.map(pa => <option key={pa} value={pa} />)}
+              </datalist>
             </div>
           </div>
 
@@ -1187,7 +1220,12 @@ function ProjectDetails({ project, onClose, onEdit, onClone, onAddComment, onTog
         </div>
 
         <h2 className="text-xl font-bold text-slate-900 mb-1 pr-8">{project.projectName}</h2>
-        <p className="text-sm text-slate-500">{project.productArea} • {project.devices}</p>
+        <div className="flex items-center gap-2 mb-3">
+          <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${getPAColor(project.productArea)}`}>
+            {project.productArea || 'No PA'}
+          </span>
+          <span className="text-sm text-slate-500">• {project.devices}</span>
+        </div>
 
         <div className="flex items-center gap-4 mt-5">
           <button onClick={onEdit} className="flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-indigo-600 bg-white border border-slate-200 px-3 py-1.5 rounded-lg transition-colors">
@@ -1196,8 +1234,8 @@ function ProjectDetails({ project, onClose, onEdit, onClone, onAddComment, onTog
           <button onClick={onClone} className="flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-indigo-600 bg-white border border-slate-200 px-3 py-1.5 rounded-lg transition-colors">
             <Copy size={14} /> Clone
           </button>
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700">
-            <span className={`w-2 h-2 rounded-full ${project.status === 'Completed' ? 'bg-green-500' : 'bg-indigo-500'}`}></span>
+          <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border ${getStatusStyle(project.status).bg} ${getStatusStyle(project.status).text} ${getStatusStyle(project.status).border}`}>
+            <span className={`w-2 h-2 rounded-full ${getStatusStyle(project.status).dot}`}></span>
             {project.status}
           </span>
 
@@ -1284,8 +1322,8 @@ function ProjectDetails({ project, onClose, onEdit, onClone, onAddComment, onTog
                           key={st}
                           onClick={() => onUpdateLocale(project.id, loc.name, st)}
                           className={`px-2 py-1 text-[11px] font-medium rounded-md transition-all ${loc.status === st
-                            ? (st === 'Passed' ? 'bg-green-100 text-green-700' : st === 'Failed' ? 'bg-red-100 text-red-700' : st === 'Testing' ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-700')
-                            : 'bg-white border border-slate-200 text-slate-500 hover:border-slate-300'
+                              ? (st === 'Passed' ? 'bg-green-100 text-green-700' : st === 'Failed' ? 'bg-red-100 text-red-700' : st === 'Testing' ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-700')
+                              : 'bg-white border border-slate-200 text-slate-500 hover:border-slate-300'
                             }`}
                         >
                           {st}
