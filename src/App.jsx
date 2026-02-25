@@ -13,7 +13,18 @@ import {
 } from 'lucide-react';
 
 // --- Firebase Initialization (Rule 1 & 3 compliance) ---
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+// 🚨 IMPORTANT: PASTE YOUR FIREBASE CONFIGURATION HERE 🚨
+const myLocalFirebaseConfig = {
+  apiKey: "AIzaSyC6xIVImyXjYqtWQtdOkFlO3aBtJLGAcc8",
+  authDomain: "polyglot-pm.firebaseapp.com",
+  projectId: "polyglot-pm",
+  storageBucket: "polyglot-pm.firebasestorage.app",
+  messagingSenderId: "665653580466",
+  appId: "1:665653580466:web:b72025d60f51bc3a85efab",
+  measurementId: "G-RPL0YK36R7"
+};
+
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : myLocalFirebaseConfig;
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
