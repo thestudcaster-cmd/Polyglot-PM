@@ -199,7 +199,7 @@ function PolyglotDashboard() {
       setSettingsLoaded(true);
       return;
     }
-    const settingsRef = doc(db, 'artifacts', appId, 'public', 'settings', 'config');
+    const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config');
     const unsubscribeSettings = onSnapshot(settingsRef, (docSnap) => {
       if (docSnap.exists()) {
         setSettings(docSnap.data());
@@ -367,7 +367,7 @@ function PolyglotDashboard() {
 
   const handleUpdateSettings = async (newSettings) => {
     if (!isAdmin) return;
-    await setDoc(doc(db, 'artifacts', appId, 'public', 'settings', 'config'), newSettings);
+    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config'), newSettings);
     addToast("Security Rules Updated", "success");
   };
 
