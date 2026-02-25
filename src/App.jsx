@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 
 // --- Firebase Initialization (Rule 1 & 3 compliance) ---
-const const firebaseConfig = {
+const firebaseConfig = {
   apiKey: "AIzaSyC6xIVImyXjYqtWQtdOkFlO3aBtJLGAcc8",
   authDomain: "polyglot-pm.firebaseapp.com",
   projectId: "polyglot-pm",
