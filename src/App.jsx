@@ -9,7 +9,7 @@ import {
   X, Pin, Trash2, Send, Edit2, Kanban, Globe2, History, Bell, LogOut, BarChart2,
   Download, Upload, Moon, Sun, ShieldAlert, UserCheck, ShieldCheck, Users,
   HardDrive, Trash, Globe, Mail, Lock, Layers, Key, Megaphone, ChevronRight,
-  ChevronLeft, RefreshCw, Zap, ArrowUpDown
+  ChevronLeft, RefreshCw, Zap, ArrowUpDown, ExternalLink, Folder, FileText, Smartphone
 } from 'lucide-react';
 
 // ============================================================================
@@ -52,6 +52,7 @@ const SUPER_ADMIN_EMAILS = [
 const DEFAULT_TEAM_MEMBERS = ['Anthony', 'Andrey', 'Annika', 'Mieke', 'Emily', 'Unassigned'];
 const STATUSES = ['Heads-up', 'Need Assessment', 'In Assessment', 'Screenshooting', 'In Progress', 'Blocked', 'Pending Reports', 'Completed'];
 const AVAILABLE_LOCALES = ['ar-SA', 'da-DK', 'de-DE', 'en-GB', 'es-ES', 'es-419', 'it-IT', 'fr-CA', 'fr-FR', 'ja-JP', 'ko-KR', 'nl-NL', 'no-NO', 'pt-PT', 'sv-SE', 'zh-TW'];
+const PRIORITIES = ['P0', 'P1', 'P2', 'P3', 'P4'];
 
 const STATUS_COLORS = {
   'Heads-up': { bg: 'bg-fuchsia-100 dark:bg-fuchsia-900/40', text: 'text-fuchsia-700 dark:text-fuchsia-400', border: 'border-fuchsia-200 dark:border-fuchsia-800', dot: 'bg-fuchsia-500' },
@@ -72,6 +73,17 @@ const getPAColor = (paName) => {
   let hash = 0;
   for (let i = 0; i < paName.length; i++) hash = paName.charCodeAt(i) + ((hash << 5) - hash);
   return PA_PALETTE[Math.abs(hash) % PA_PALETTE.length];
+};
+
+const getPriorityColor = (priority) => {
+  const pColors = {
+    'P0': 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-400',
+    'P1': 'bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400',
+    'P2': 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400',
+    'P3': 'bg-slate-100 text-slate-800 border-slate-200 dark:bg-slate-800 dark:text-slate-300',
+    'P4': 'bg-slate-100 text-slate-800 border-slate-200 dark:bg-slate-800 dark:text-slate-300'
+  };
+  return pColors[priority] || pColors['P2'];
 };
 
 // ============================================================================
@@ -275,7 +287,6 @@ function PolyglotDashboard() {
   const allActivity = useMemo(() => {
     const act = [];
     (projects || []).forEach(p => {
-      // Safe Array Check
       if (Array.isArray(p.comments)) {
         p.comments.forEach(c => act.push({ ...c, projectName: p.projectName, projectId: p.id }));
       }
@@ -373,8 +384,8 @@ function PolyglotDashboard() {
 
   // --- CSV Import/Export ---
   const handleExportCSV = () => {
-    const headers = ['Bug Number', 'Project Name', 'Product Area', 'Status', 'Assigned Lead', 'Priority', 'Client ETA', 'Tester ETA', 'Devices'];
-    const rows = processedProjects.map(p => [p.bugNumber, p.projectName, p.productArea, p.status, p.assignedLead, p.priority || 'P2', p.clientETA || '', p.testerETA || '', p.devices || '']);
+    const headers = ['Bug Number', 'Project Name', 'Product Area', 'Status', 'Assigned Lead', 'Priority', 'Client ETA', 'Tester ETA', 'Devices', 'Project Folder URL', 'Quote URL'];
+    const rows = processedProjects.map(p => [p.bugNumber, p.projectName, p.productArea, p.status, p.assignedLead, p.priority || 'P2', p.clientETA || '', p.testerETA || '', p.devices || '', p.projectFolderUrl || '', p.quoteUrl || '']);
     const csvContent = [headers.join(','), ...rows.map(r => r.map(cell => `"${String(cell || '').replace(/"/g, '""')}"`).join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -421,7 +432,8 @@ function PolyglotDashboard() {
             bugNumber: p['Bug Number'] || '', projectName: p['Project Name'], productArea: p['Product Area'] || 'General',
             status: STATUSES.includes(p['Status']) ? p['Status'] : 'Need Assessment', assignedLead: p['Assigned Lead'] || 'Unassigned',
             priority: p['Priority'] || 'P2', clientETA: p['Client ETA'] || '', testerETA: p['Tester ETA'] || '',
-            devices: p['Devices'] || '', createdAt: Date.now(), updatedAt: Date.now(), createdBy: user.uid,
+            devices: p['Devices'] || '', projectFolderUrl: p['Project Folder URL'] || '', quoteUrl: p['Quote URL'] || '',
+            createdAt: Date.now(), updatedAt: Date.now(), createdBy: user.uid,
             lastEditedByName: `Import: ${currentUserDisplayName}`, comments: []
           });
           count++;
@@ -588,7 +600,7 @@ function PolyglotDashboard() {
           </div>
         )}
 
-        {/* DYNAMIC SCROLLING VIEW */}
+        {/* DYNAMIC SCROLLING VIEW (Reduced Panels) */}
         <div className="flex-1 overflow-auto p-10 bg-slate-50 dark:bg-slate-950">
           {viewMode === 'table' && <TableView projects={processedProjects} selectedIds={selectedProjectIds} onSelect={setSelectedProjectIds} onOpen={setSelectedProject} onUpdateProject={handleUpdateProject} canEdit={canEdit} sortConfig={sortConfig} onSort={handleSort} />}
           {viewMode === 'kanban' && <div className="flex gap-8 pb-10 min-h-full">{STATUSES.map(s => <KanbanColumn key={s} status={s} projects={processedProjects.filter(p => p.status === s)} onOpen={setSelectedProject} />)}</div>}
@@ -604,9 +616,11 @@ function PolyglotDashboard() {
         </div>
       </div>
 
-      {/* SLIDE-OVER PANELS */}
+      {/* SLIDE-OVER PANELS (Main Detailed Views) */}
       {isAnnHistoryOpen && <AnnouncementHistory announcements={announcements} onClose={() => setIsAnnHistoryOpen(false)} />}
       {isActivityOpen && <ActivityFeed activities={allActivity} onClose={() => setIsActivityOpen(false)} onOpen={(id) => { setSelectedProject(projects.find(p => p.id === id)); setIsActivityOpen(false); }} />}
+
+      {/* Project Form & Details have the comprehensive fields */}
       {isFormOpen && <ProjectForm project={selectedProject} teamMembers={dynamicTeamMembers} uniquePAs={uniqueProductAreas} onClose={() => { setIsFormOpen(false); setSelectedProject(null); }} onSave={handleSaveProject} />}
       {selectedProject && !isFormOpen && (
         <ProjectDetails
@@ -668,7 +682,8 @@ const RenderList = ({ items, listKey, icon: Icon, color, disableRemove, onRemove
 );
 
 
-// --- Major Views ---
+// --- Major Views (Reduced Panels for High-Level Info) ---
+
 function AnnouncementBar({ announcements, onOpenHistory }) {
   const [index, setIndex] = useState(0);
   const displayList = useMemo(() => [...announcements.filter(a => a.isPinned), ...announcements.filter(a => !a.isPinned).slice(0, 3)], [announcements]);
@@ -723,7 +738,10 @@ function TableView({ projects, selectedIds, onSelect, onOpen, onUpdateProject, c
                   {canEdit && <input type="checkbox" checked={isSelected} readOnly className="rounded border-slate-300 text-indigo-600 focus:ring-0 cursor-pointer" />}
                 </td>
                 <td className="px-8 py-6">
-                  <div className="font-mono text-[10px] text-indigo-600 dark:text-indigo-400 font-black mb-1.5 uppercase tracking-widest">{p.bugNumber || 'DRAFT'}</div>
+                  <div className="font-mono text-[10px] text-indigo-600 dark:text-indigo-400 font-black mb-1.5 uppercase tracking-widest flex gap-2 items-center">
+                    {p.bugNumber || 'DRAFT'}
+                    {p.priority && p.priority !== 'P2' && <span className={`px-1.5 py-0.5 rounded text-[8px] border ${getPriorityColor(p.priority)}`}>{p.priority}</span>}
+                  </div>
                   <div className="font-bold text-slate-800 dark:text-slate-100 text-sm mb-2.5 leading-tight">{p.projectName}</div>
                   <span className={`inline-block px-2.5 py-1 rounded-lg text-[9px] font-black border uppercase tracking-tighter ${getPAColor(p.productArea)}`}>{p.productArea || 'General'}</span>
                 </td>
@@ -768,7 +786,10 @@ function KanbanColumn({ status, projects, onOpen }) {
         {projects.map(p => (
           <div key={p.id} onClick={() => onOpen(p)} className="group bg-white dark:bg-slate-800 p-6 rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-700 cursor-pointer hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
             <div className="flex justify-between items-start mb-3">
-              <div className="text-[9px] font-black text-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 rounded-md uppercase tracking-wider">{p.bugNumber || 'Draft'}</div>
+              <div className="flex gap-2">
+                <div className="text-[9px] font-black text-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 rounded-md uppercase tracking-wider">{p.bugNumber || 'Draft'}</div>
+                {p.priority && p.priority !== 'P2' && <div className={`text-[9px] font-black px-2 py-1 rounded-md border ${getPriorityColor(p.priority)}`}>{p.priority}</div>}
+              </div>
             </div>
             <div className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-5 leading-snug">{p.projectName}</div>
             <div className="flex justify-between items-end border-t border-slate-50 dark:border-slate-700/50 pt-4 mt-auto">
@@ -953,7 +974,7 @@ function AdminView({ settings, onUpdateSettings, productAreas, isSuperAdmin, onP
   );
 }
 
-// --- Modals & Panels ---
+// --- Modals & Panels (Main Detailed Views) ---
 
 function AnnouncementHistory({ announcements, onClose }) {
   return (
@@ -985,12 +1006,12 @@ function AnnouncementHistory({ announcements, onClose }) {
 }
 
 function ProjectForm({ project, onClose, onSave, teamMembers, uniquePAs }) {
-  const [data, setData] = useState(project || { bugNumber: '', projectName: '', productArea: '', assignedLead: 'Unassigned', status: 'Need Assessment', priority: 'P2', clientETA: '', testerETA: '', projectFolderUrl: '', quoteUrl: '' });
+  const [data, setData] = useState(project || { bugNumber: '', projectName: '', productArea: '', assignedLead: 'Unassigned', status: 'Need Assessment', priority: 'P2', clientETA: '', testerETA: '', projectFolderUrl: '', quoteUrl: '', devices: '' });
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 dark:bg-black/60 backdrop-blur-md animate-in fade-in duration-300">
-      <div className="w-[500px] bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-500 border-l border-slate-200 dark:border-slate-800">
+      <div className="w-[550px] bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-500 border-l border-slate-200 dark:border-slate-800">
         <div className="p-10 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900">
-          <h2 className="text-2xl font-black text-slate-900 dark:text-white">{project ? 'Update Entry' : 'New Entry'}</h2>
+          <h2 className="text-2xl font-black text-slate-900 dark:text-white">{project ? 'Update Full Details' : 'New Project Entry'}</h2>
           <button onClick={onClose} className="p-3 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors"><X size={20} /></button>
         </div>
         <div className="flex-1 p-10 space-y-8 overflow-y-auto">
@@ -998,19 +1019,31 @@ function ProjectForm({ project, onClose, onSave, teamMembers, uniquePAs }) {
             <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Bug ID</label><input className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-indigo-500/20 dark:text-white" value={data.bugNumber} onChange={e => setData({ ...data, bugNumber: e.target.value })} placeholder="b/..." /></div>
             <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Product Area</label><input list="pa-list" className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-indigo-500/20 dark:text-white" value={data.productArea} onChange={e => setData({ ...data, productArea: e.target.value })} placeholder="e.g. Search" /><datalist id="pa-list">{uniquePAs.map(pa => <option key={pa} value={pa} />)}</datalist></div>
           </div>
-          <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Project Descriptor</label><input className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-indigo-500/20 dark:text-white" value={data.projectName} onChange={e => setData({ ...data, projectName: e.target.value })} /></div>
-          <div className="grid grid-cols-2 gap-6">
+          <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Project Descriptor</label><input className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-indigo-500/20 dark:text-white" value={data.projectName} onChange={e => setData({ ...data, projectName: e.target.value })} placeholder="Required..." /></div>
+
+          <div className="grid grid-cols-2 gap-6 pt-6 border-t border-slate-100 dark:border-slate-800">
             <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Assignment</label><select className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none dark:text-white" value={data.assignedLead} onChange={e => setData({ ...data, assignedLead: e.target.value })}>{teamMembers.map(m => <option key={m} value={m}>{m}</option>)}</select></div>
             <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Phase</label><select className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none dark:text-white" value={data.status} onChange={e => setData({ ...data, status: e.target.value })}>{STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
           </div>
-          <div className="grid grid-cols-2 gap-6 pt-4 border-t border-slate-100 dark:border-slate-800">
+
+          <div className="grid grid-cols-2 gap-6">
+            <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Priority Level</label><select className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none dark:text-white" value={data.priority || 'P2'} onChange={e => setData({ ...data, priority: e.target.value })}>{PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
+            <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Platform / Devices</label><input className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none dark:text-white" value={data.devices || ''} onChange={e => setData({ ...data, devices: e.target.value })} placeholder="e.g. Android/iOS" /></div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-6">
             <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Client Target</label><input type="date" className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none dark:text-white" value={data.clientETA} onChange={e => setData({ ...data, clientETA: e.target.value })} /></div>
             <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Tester Target</label><input type="date" className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none dark:text-white" value={data.testerETA} onChange={e => setData({ ...data, testerETA: e.target.value })} /></div>
+          </div>
+
+          <div className="pt-6 border-t border-slate-100 dark:border-slate-800 space-y-6">
+            <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Project Folder URL</label><input type="url" className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-indigo-500/20 dark:text-white placeholder:font-normal" value={data.projectFolderUrl || ''} onChange={e => setData({ ...data, projectFolderUrl: e.target.value })} placeholder="https://drive.google.com/..." /></div>
+            <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Quote Reference URL</label><input type="url" className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-indigo-500/20 dark:text-white placeholder:font-normal" value={data.quoteUrl || ''} onChange={e => setData({ ...data, quoteUrl: e.target.value })} placeholder="https://docs.google.com/..." /></div>
           </div>
         </div>
         <div className="p-8 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900 flex justify-end gap-4">
           <button onClick={onClose} className="px-6 py-4 text-slate-500 font-black text-xs hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl transition-colors">Cancel</button>
-          <button onClick={() => onSave(data)} disabled={!data.projectName} className="bg-indigo-600 text-white px-10 py-4 rounded-2xl font-black text-xs shadow-lg shadow-indigo-600/30 hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed">Save to Database</button>
+          <button onClick={() => onSave(data)} disabled={!data.projectName} className="bg-indigo-600 text-white px-10 py-4 rounded-2xl font-black text-xs shadow-lg shadow-indigo-600/30 hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed">Save Full Record</button>
         </div>
       </div>
     </div>
@@ -1021,31 +1054,57 @@ function ProjectDetails({ project, onClose, onEdit, onUpdate, isAdmin, canEdit, 
   const [comment, setComment] = useState('');
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 dark:bg-black/60 backdrop-blur-md animate-in fade-in duration-300">
-      <div className="w-[600px] bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-500 border-l border-slate-200 dark:border-slate-800">
+      <div className="w-[650px] bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-500 border-l border-slate-200 dark:border-slate-800">
         <div className="p-10 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900 relative">
           <button onClick={onClose} className="absolute top-8 right-8 p-3 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors"><X size={20} /></button>
-          <div className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 mb-3 uppercase tracking-widest bg-indigo-50 dark:bg-indigo-900/30 inline-block px-3 py-1 rounded-lg">{project.bugNumber || 'DRAFT'}</div>
-          <h2 className="text-3xl font-black text-slate-900 dark:text-white mb-4 leading-tight">{project.projectName}</h2>
+
+          <div className="flex items-center gap-3 mb-4">
+            <div className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1 rounded-lg">{project.bugNumber || 'DRAFT'}</div>
+            {project.priority && (
+              <div className={`text-[10px] font-black px-3 py-1 rounded-lg border uppercase tracking-widest ${getPriorityColor(project.priority)}`}>
+                {project.priority}
+              </div>
+            )}
+          </div>
+
+          <h2 className="text-3xl font-black text-slate-900 dark:text-white mb-6 leading-tight pr-12">{project.projectName}</h2>
+
           <div className="flex items-center gap-4 mb-8">
             <span className={`px-3 py-1.5 rounded-xl text-[10px] font-black border uppercase tracking-widest ${getPAColor(project.productArea)}`}>{project.productArea || 'General'}</span>
-            <span className="text-xs text-slate-400 font-bold flex items-center gap-2"><div className="w-5 h-5 rounded bg-slate-200 dark:bg-slate-700 text-[10px] flex items-center justify-center text-slate-600 dark:text-slate-300">{String(project.assignedLead || 'U').charAt(0)}</div>{project.assignedLead}</span>
+            <span className="text-xs text-slate-400 font-bold flex items-center gap-2"><div className="w-6 h-6 rounded bg-slate-200 dark:bg-slate-700 text-[10px] flex items-center justify-center text-slate-600 dark:text-slate-300">{String(project.assignedLead || 'U').charAt(0)}</div>{project.assignedLead}</span>
           </div>
+
           <div className="flex gap-4 items-center">
-            {canEdit && <button onClick={onEdit} className="px-6 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-black text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition-all"><Edit2 size={16} /> Edit Entry</button>}
+            {canEdit && <button onClick={onEdit} className="px-6 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-black text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition-all shadow-sm"><Edit2 size={16} /> Edit Full Record</button>}
             <span className={`px-6 py-3 rounded-2xl text-xs font-black border flex items-center gap-2 ${getStatusStyle(project.status).bg} ${getStatusStyle(project.status).text} ${getStatusStyle(project.status).border}`}><span className={`w-2 h-2 rounded-full ${getStatusStyle(project.status).dot}`}></span>{project.status}</span>
             {isAdmin && <button onClick={() => onDelete(project.id)} className="ml-auto p-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors"><Trash2 size={20} /></button>}
           </div>
         </div>
+
         <div className="flex-1 overflow-y-auto p-10 space-y-12">
 
-          <div className="grid grid-cols-2 gap-6 p-6 bg-slate-50 dark:bg-slate-800/50 rounded-[2rem] border border-slate-100 dark:border-slate-800">
-            <div><div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Client ETA</div><div className="text-sm font-bold dark:text-white flex items-center gap-2"><Clock size={14} className="text-indigo-500" /> {project.clientETA || '--'}</div></div>
-            <div><div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Tester ETA</div><div className="text-sm font-bold dark:text-white flex items-center gap-2"><Clock size={14} className="text-indigo-500" /> {project.testerETA || '--'}</div></div>
+          {/* Quick Info & Links Grid */}
+          <div className="grid grid-cols-2 gap-6 p-8 bg-slate-50 dark:bg-slate-800/50 rounded-[2rem] border border-slate-100 dark:border-slate-800">
+            <div><div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Client ETA</div><div className="text-sm font-bold dark:text-white flex items-center gap-2"><Clock size={16} className="text-indigo-500" /> {project.clientETA || 'Unscheduled'}</div></div>
+            <div><div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Tester ETA</div><div className="text-sm font-bold dark:text-white flex items-center gap-2"><Clock size={16} className="text-indigo-500" /> {project.testerETA || 'Unscheduled'}</div></div>
+            <div><div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Platform / Devices</div><div className="text-sm font-bold dark:text-white flex items-center gap-2"><Smartphone size={16} className="text-slate-400" /> {project.devices || 'N/A'}</div></div>
+            <div className="flex flex-col gap-2 justify-center">
+              {project.projectFolderUrl ? (
+                <a href={project.projectFolderUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[11px] font-black text-indigo-600 hover:underline"><Folder size={14} /> Access Project Folder <ExternalLink size={12} /></a>
+              ) : (
+                <span className="flex items-center gap-2 text-[11px] font-bold text-slate-400"><Folder size={14} /> No Folder Linked</span>
+              )}
+              {project.quoteUrl ? (
+                <a href={project.quoteUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[11px] font-black text-indigo-600 hover:underline"><FileText size={14} /> Access Quote Doc <ExternalLink size={12} /></a>
+              ) : (
+                <span className="flex items-center gap-2 text-[11px] font-bold text-slate-400"><FileText size={14} /> No Quote Linked</span>
+              )}
+            </div>
           </div>
 
           <div className="space-y-6">
             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2.5"><Globe2 size={16} className="text-indigo-600" /> Locale Footprint Matrix</h3>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-4 gap-3">
               {AVAILABLE_LOCALES.map(loc => {
                 const current = (project.locales || []).find(l => l.name === loc);
                 return (
@@ -1054,7 +1113,7 @@ function ProjectDetails({ project, onClose, onEdit, onUpdate, isAdmin, canEdit, 
                     const list = current ? (project.locales || []).map(l => l.name === loc ? { ...l, status: next } : l) : [...(project.locales || []), { name: loc, status: 'Passed' }];
                     onUpdate(project.id, { locales: list });
                   }} className={`text-center py-4 px-2 rounded-2xl border text-[10px] font-black transition-all ${current?.status === 'Passed' ? 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-400' : current?.status === 'Failed' ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400 hover:border-indigo-300'}`}>
-                    <div className="mb-1 text-xs">{loc}</div>
+                    <div className="mb-1 text-[11px]">{loc}</div>
                     <div className="opacity-60">{current?.status || 'N/A'}</div>
                   </button>
                 );
