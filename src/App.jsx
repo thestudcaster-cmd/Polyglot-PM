@@ -9,7 +9,7 @@ import {
   X, Pin, Trash2, Send, Edit2, Kanban, Globe2, History, Bell, LogOut, BarChart2,
   Download, Upload, Moon, Sun, ShieldAlert, UserCheck, ShieldCheck, Users,
   HardDrive, Trash, Globe, Mail, Lock, Layers, Key, Megaphone, ChevronRight,
-  ChevronLeft, RefreshCw, Zap, ArrowUpDown, ExternalLink, Folder, FileText, Smartphone
+  ChevronLeft, RefreshCw, Zap, ArrowUpDown, ExternalLink, Folder, FileText, Smartphone, Copy
 } from 'lucide-react';
 
 // ============================================================================
@@ -97,7 +97,8 @@ function PolyglotDashboard() {
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
-  const [settings, setSettings] = useState({ teamMembers: DEFAULT_TEAM_MEMBERS, allowedDomains: [], allowedUsers: [], userGroups: [], adminEmails: [] });
+  const [settings, setSettings] = useState({ teamMembers: DEFAULT_TEAM_MEMBERS, allowedDomains: [], allowedUsers: [], userGroups: [], adminEmails: [], users: [] });
+  const [authError, setAuthError] = useState(null);
 
   // UI & View State
   const [searchQuery, setSearchQuery] = useState('');
@@ -109,6 +110,7 @@ function PolyglotDashboard() {
   // Panel States
   const [selectedProject, setSelectedProject] = useState(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [formDraft, setFormDraft] = useState(null); // Used to pass data to the form (handles Cloning/Editing)
   const [isActivityOpen, setIsActivityOpen] = useState(false);
   const [isAnnHistoryOpen, setIsAnnHistoryOpen] = useState(false);
   const [selectedProjectIds, setSelectedProjectIds] = useState([]);
@@ -136,6 +138,7 @@ function PolyglotDashboard() {
     const domain = currentUserEmail.split('@')[1] || '';
     const isDomainAllowed = (settings.allowedDomains || []).includes(domain);
     const isUserExplicitlyAllowed = (settings.allowedUsers || []).includes(currentUserEmail);
+    const myIndividualConfig = (settings.users || []).find(u => u.email === currentUserEmail);
 
     // SAFE ARRAY MAPPING: Prevents TypeError if g.members is undefined
     const myGroups = (settings.userGroups || []).filter(g => {
@@ -143,17 +146,31 @@ function PolyglotDashboard() {
       return members.map(m => (m || '').toLowerCase()).includes(currentUserEmail);
     });
 
-    if (myGroups.length === 0 && !isDomainAllowed && !isUserExplicitlyAllowed) {
+    if (myGroups.length === 0 && !isDomainAllowed && !isUserExplicitlyAllowed && !myIndividualConfig) {
       return { hasAccess: false, role: 'none', allowedPAs: [] };
     }
 
     let maxRole = isDomainAllowed || isUserExplicitlyAllowed ? 'editor' : 'viewer';
     let allowedPAs = isDomainAllowed || isUserExplicitlyAllowed ? ['all'] : [];
 
+    // Apply explicit individual configs
+    if (myIndividualConfig) {
+      if (myIndividualConfig.role === 'editor') maxRole = 'editor';
+      if (myIndividualConfig.scope === 'all' || allowedPAs.includes('all')) {
+        allowedPAs = ['all'];
+      } else {
+        allowedPAs = [...new Set([...allowedPAs, ...(myIndividualConfig.scopedPAs || [])])];
+      }
+    }
+
+    // Apply group configs
     myGroups.forEach(g => {
       if (g.role === 'editor') maxRole = 'editor';
-      if (g.scope === 'all' || allowedPAs.includes('all')) allowedPAs = ['all'];
-      else allowedPAs = [...new Set([...allowedPAs, ...(g.scopedPAs || [])])];
+      if (g.scope === 'all' || allowedPAs.includes('all')) {
+        allowedPAs = ['all'];
+      } else {
+        allowedPAs = [...new Set([...allowedPAs, ...(g.scopedPAs || [])])];
+      }
     });
 
     return { hasAccess: true, role: maxRole, allowedPAs: allowedPAs };
@@ -179,6 +196,20 @@ function PolyglotDashboard() {
     setIsRefreshing(true);
     await triggerSheetSync();
     setTimeout(() => { setIsRefreshing(false); addToast('System Synced Successfully', 'success'); }, 800);
+  };
+
+  const handleSignIn = async () => {
+    setAuthError(null);
+    try {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    } catch (error) {
+      console.error("Sign-in Error:", error);
+      if (error.code === 'auth/unauthorized-domain') {
+        setAuthError(`Action Required: Please add "${window.location.hostname}" to your Authorized Domains in the Firebase Console (Authentication > Settings > Authorized Domains).`);
+      } else {
+        setAuthError(error.message);
+      }
+    }
   };
 
   useEffect(() => {
@@ -216,7 +247,7 @@ function PolyglotDashboard() {
       if (docSnap.exists()) {
         setSettings(docSnap.data());
       } else {
-        setDoc(settingsRef, { teamMembers: DEFAULT_TEAM_MEMBERS, allowedDomains: ['google.com'], allowedUsers: [...SUPER_ADMIN_EMAILS], userGroups: [], adminEmails: [] })
+        setDoc(settingsRef, { teamMembers: DEFAULT_TEAM_MEMBERS, allowedDomains: ['google.com'], allowedUsers: [...SUPER_ADMIN_EMAILS], userGroups: [], adminEmails: [], users: [] })
           .catch(err => console.log("Init settings skipped (Insufficient permissions):", err));
       }
       setSettingsLoaded(true);
@@ -348,6 +379,7 @@ function PolyglotDashboard() {
       if (data.id) await updateDoc(doc(ref, data.id), auditData);
       else await addDoc(ref, { ...auditData, createdAt: Date.now(), createdBy: user.uid, comments: [] });
       setIsFormOpen(false);
+      setFormDraft(null);
       triggerSheetSync();
       addToast(data.id ? "Project Updated" : "Project Created", "success");
     } catch (err) { addToast("Failed to save project", "error"); }
@@ -478,12 +510,20 @@ function PolyglotDashboard() {
   );
 
   if (!user) return (
-    <div className="flex h-screen bg-slate-50 items-center justify-center font-sans">
+    <div className="flex h-screen bg-slate-50 items-center justify-center font-sans p-6">
       <div className="bg-white p-12 rounded-[40px] shadow-2xl border border-slate-100 flex flex-col items-center max-w-md w-full text-center">
         <div className="w-20 h-20 bg-indigo-600 rounded-[2rem] flex items-center justify-center text-white font-black shadow-lg shadow-indigo-600/30 mb-8 text-4xl">P</div>
         <h1 className="text-3xl font-black text-slate-900 mb-3 tracking-tight">Polyglot PM</h1>
         <p className="text-slate-500 mb-10 font-medium">Enterprise Localization Management</p>
-        <button onClick={() => signInWithPopup(auth, new GoogleAuthProvider())} className="flex items-center justify-center gap-4 bg-white border-2 border-slate-200 hover:border-indigo-600 hover:bg-indigo-50 text-slate-800 font-black py-4 px-6 rounded-2xl w-full transition-all active:scale-95 shadow-sm">
+
+        {authError && (
+          <div className="mb-6 w-full p-4 bg-red-50 border border-red-200 rounded-2xl text-xs text-red-600 font-bold text-left shadow-sm">
+            <AlertCircle size={16} className="inline mr-2 align-text-bottom" />
+            {authError}
+          </div>
+        )}
+
+        <button onClick={handleSignIn} className="flex items-center justify-center gap-4 bg-white border-2 border-slate-200 hover:border-indigo-600 hover:bg-indigo-50 text-slate-800 font-black py-4 px-6 rounded-2xl w-full transition-all active:scale-95 shadow-sm">
           <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/action/google.svg" className="w-5 h-5" alt="Google" /> Sign in with Google
         </button>
       </div>
@@ -564,7 +604,7 @@ function PolyglotDashboard() {
                 </div>
 
                 {canEdit && (
-                  <button onClick={() => { setSelectedProject(null); setIsFormOpen(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3.5 rounded-2xl text-sm font-black flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition-all active:scale-95 ml-2">
+                  <button onClick={() => { setSelectedProject(null); setFormDraft(null); setIsFormOpen(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3.5 rounded-2xl text-sm font-black flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition-all active:scale-95 ml-2">
                     <Plus size={20} /> New Record
                   </button>
                 )}
@@ -621,11 +661,18 @@ function PolyglotDashboard() {
       {isActivityOpen && <ActivityFeed activities={allActivity} onClose={() => setIsActivityOpen(false)} onOpen={(id) => { setSelectedProject(projects.find(p => p.id === id)); setIsActivityOpen(false); }} />}
 
       {/* Project Form & Details have the comprehensive fields */}
-      {isFormOpen && <ProjectForm project={selectedProject} teamMembers={dynamicTeamMembers} uniquePAs={uniqueProductAreas} onClose={() => { setIsFormOpen(false); setSelectedProject(null); }} onSave={handleSaveProject} />}
+      {isFormOpen && <ProjectForm project={formDraft} teamMembers={dynamicTeamMembers} uniquePAs={uniqueProductAreas} onClose={() => { setIsFormOpen(false); setFormDraft(null); }} onSave={handleSaveProject} />}
       {selectedProject && !isFormOpen && (
         <ProjectDetails
-          project={selectedProject} isAdmin={isAdmin} canEdit={canEdit}
-          onClose={() => setSelectedProject(null)} onEdit={() => setIsFormOpen(true)}
+          project={selectedProject} isAdmin={isAdmin} canEdit={canEdit} currentUserDisplayName={currentUserDisplayName}
+          onClose={() => setSelectedProject(null)}
+          onEdit={() => { setFormDraft(selectedProject); setIsFormOpen(true); }}
+          onClone={() => {
+            const cloned = { ...selectedProject, id: null, bugNumber: '', comments: [], locales: [], createdAt: Date.now() };
+            setFormDraft(cloned);
+            setIsFormOpen(true);
+            setSelectedProject(null);
+          }}
           onUpdate={handleUpdateProject}
           onDelete={(id) => { deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', id)); triggerSheetSync(); setSelectedProject(null); addToast("Project Deleted", "success"); }}
         />
@@ -680,6 +727,22 @@ const RenderList = ({ items, listKey, icon: Icon, color, disableRemove, onRemove
     {items.length === 0 && <span className="text-[10px] font-bold text-slate-400 italic">List is empty.</span>}
   </div>
 );
+
+// Helper function for rendering basic markdown in comments
+const renderRichText = (text) => {
+  if (!text) return null;
+  const parts = text.split(/(\*\*.*?\*\*|\*.*?\*|\[.*?\]\(.*?\)|\`.*?\`)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) return <strong key={i} className="font-black text-slate-900 dark:text-white">{part.slice(2, -2)}</strong>;
+    if (part.startsWith('*') && part.endsWith('*')) return <em key={i} className="italic text-slate-800 dark:text-slate-200">{part.slice(1, -1)}</em>;
+    if (part.startsWith('`') && part.endsWith('`')) return <code key={i} className="bg-slate-200 dark:bg-slate-700 text-pink-600 dark:text-pink-400 px-1.5 py-0.5 rounded-md text-[11px] font-mono">{part.slice(1, -1)}</code>;
+    if (part.match(/\[(.*?)\]\((.*?)\)/)) {
+      const [, label, url] = part.match(/\[(.*?)\]\((.*?)\)/);
+      return <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 underline font-bold">{label}</a>;
+    }
+    return <span key={i}>{part}</span>;
+  });
+};
 
 
 // --- Major Views (Reduced Panels for High-Level Info) ---
@@ -833,25 +896,67 @@ function MetricsView({ projects }) {
 }
 
 function AdminView({ settings, onUpdateSettings, productAreas, isSuperAdmin, onPostAnnouncement, announcements, onDeleteAnnouncement, onTogglePin }) {
-  const [newGroup, setNewGroup] = useState({ name: '', role: 'viewer', scope: 'all', scopedPAs: [], members: [] });
-  const [inputs, setInputs] = useState({ admin: '', user: '', domain: '', annTitle: '', annContent: '', annTarget: 'general' });
+  const [newGroup, setNewGroup] = useState({ id: null, name: '', role: 'viewer', scope: 'all', scopedPAs: [], members: [] });
+  const [newUserConfig, setNewUserConfig] = useState({ email: '', role: 'viewer', scope: 'all', scopedPAs: [] });
+  const [inputs, setInputs] = useState({ admin: '', domain: '', annTitle: '', annContent: '', annTarget: 'general' });
 
   const updateSettingList = (key, value) => {
     if (!value.trim()) return;
     const cleanValue = value.toLowerCase().trim().replace('@', '');
     onUpdateSettings({ ...settings, [key]: [...new Set([...(settings[key] || []), cleanValue])] });
-    setInputs(p => ({ ...p, [key === 'adminEmails' ? 'admin' : key === 'allowedUsers' ? 'user' : 'domain']: '' }));
+    setInputs(p => ({ ...p, [key === 'adminEmails' ? 'admin' : 'domain']: '' }));
   };
 
   const removeSettingItem = (key, value) => {
     onUpdateSettings({ ...settings, [key]: (settings[key] || []).filter(x => x !== value) });
   };
 
-  const addGroup = () => {
+  // --- Group Functions ---
+  const saveGroup = () => {
     if (!newGroup.name.trim()) return;
-    onUpdateSettings({ ...settings, userGroups: [...(settings.userGroups || []), { ...newGroup, id: Date.now() }] });
-    setNewGroup({ name: '', role: 'viewer', scope: 'all', scopedPAs: [], members: [] });
+    let updatedGroups;
+    if (newGroup.id) {
+      updatedGroups = (settings.userGroups || []).map(g => g.id === newGroup.id ? newGroup : g);
+    } else {
+      updatedGroups = [...(settings.userGroups || []), { ...newGroup, id: Date.now() }];
+    }
+    onUpdateSettings({ ...settings, userGroups: updatedGroups });
+    setNewGroup({ id: null, name: '', role: 'viewer', scope: 'all', scopedPAs: [], members: [] });
   };
+
+  const editGroup = (group) => {
+    setNewGroup(group);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleAddMembers = (groupId, inputVal) => {
+    const emails = inputVal.split(/[,;\s]+/).map(e => e.toLowerCase().trim()).filter(Boolean);
+    if (emails.length === 0) return;
+    const newGroups = (settings.userGroups || []).map(g =>
+      g.id === groupId ? { ...g, members: [...new Set([...(g.members || []), ...emails])] } : g
+    );
+    onUpdateSettings({ ...settings, userGroups: newGroups });
+  };
+
+  // --- Individual User Functions ---
+  const saveIndividualUser = () => {
+    if (!newUserConfig.email.trim()) return;
+    const cleanEmail = newUserConfig.email.toLowerCase().trim();
+
+    // Remove from existing users list if updating, then add new config
+    const updatedUsers = [...(settings.users || []).filter(u => u.email !== cleanEmail), { ...newUserConfig, email: cleanEmail }];
+
+    // Automatically migrate them out of the legacy whitelist array if they existed there
+    const updatedLegacy = (settings.allowedUsers || []).filter(e => e !== cleanEmail);
+
+    onUpdateSettings({ ...settings, users: updatedUsers, allowedUsers: updatedLegacy });
+    setNewUserConfig({ email: '', role: 'viewer', scope: 'all', scopedPAs: [] });
+  };
+
+  const removeIndividualUser = (email) => {
+    onUpdateSettings({ ...settings, users: (settings.users || []).filter(u => u.email !== email) });
+  };
+
 
   return (
     <div className="max-w-6xl mx-auto space-y-12 pb-20 animate-in fade-in duration-500">
@@ -886,48 +991,143 @@ function AdminView({ settings, onUpdateSettings, productAreas, isSuperAdmin, onP
         </div>
       </div>
 
-      {/* Security Engine */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="bg-white dark:bg-slate-800 p-8 rounded-[40px] border border-slate-100 dark:border-slate-700 shadow-xl col-span-1 lg:col-span-3">
-          <h3 className="text-lg font-black text-slate-900 dark:text-white mb-8 flex items-center gap-3"><ShieldCheck className="text-amber-500" /> Core Security Keys</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-            {/* Admins */}
-            <div>
-              <label className="block text-[10px] font-black text-slate-400 uppercase mb-3">System Admins</label>
-              <input className="w-full p-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl text-xs font-bold outline-none mb-2 dark:text-white focus:ring-2 ring-indigo-500/20" value={inputs.admin} onChange={e => setInputs({ ...inputs, admin: e.target.value })} onKeyDown={e => e.key === 'Enter' && updateSettingList('adminEmails', inputs.admin)} placeholder="Add admin email..." />
-              <div className="flex flex-wrap gap-2 mt-4">
-                {SUPER_ADMIN_EMAILS.map(email => (
-                  <div key={email} className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-800/50 text-[10px] font-black text-amber-700 dark:text-amber-500 uppercase tracking-widest">
-                    <Key size={12} /> {email}
+      {/* Core Security Engine */}
+      <div className="bg-white dark:bg-slate-800 p-8 rounded-[40px] border border-slate-100 dark:border-slate-700 shadow-xl">
+        <h3 className="text-lg font-black text-slate-900 dark:text-white mb-8 flex items-center gap-3"><ShieldCheck className="text-amber-500" /> Core Security Keys</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+          {/* Admins */}
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase mb-3">System Admins</label>
+            <input className="w-full p-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl text-xs font-bold outline-none mb-2 dark:text-white focus:ring-2 ring-indigo-500/20" value={inputs.admin} onChange={e => setInputs({ ...inputs, admin: e.target.value })} onKeyDown={e => e.key === 'Enter' && updateSettingList('adminEmails', inputs.admin)} placeholder="Add admin email..." />
+            <div className="flex flex-wrap gap-2 mt-4">
+              {SUPER_ADMIN_EMAILS.map(email => (
+                <div key={email} className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-800/50 text-[10px] font-black text-amber-700 dark:text-amber-500 uppercase tracking-widest">
+                  <Key size={12} /> {email}
+                </div>
+              ))}
+            </div>
+            {settings.adminEmails && settings.adminEmails.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {settings.adminEmails.map(item => (
+                  <div key={item} className={`flex items-center gap-2 px-4 py-2 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 text-[10px] font-black text-slate-700 dark:text-slate-300 uppercase tracking-widest`}>
+                    {item} <button onClick={() => removeSettingItem('adminEmails', item)} className="ml-2 text-slate-300 hover:text-red-500"><X size={14} /></button>
                   </div>
                 ))}
               </div>
-              <RenderList items={settings.adminEmails || []} listKey="adminEmails" onRemove={removeSettingItem} />
-            </div>
-            {/* Domains */}
-            <div>
-              <label className="block text-[10px] font-black text-slate-400 uppercase mb-3">Whitelist Domains</label>
-              <input className="w-full p-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl text-xs font-bold outline-none mb-2 dark:text-white focus:ring-2 ring-indigo-500/20" value={inputs.domain} onChange={e => setInputs({ ...inputs, domain: e.target.value })} onKeyDown={e => e.key === 'Enter' && updateSettingList('allowedDomains', inputs.domain)} placeholder="e.g. company.com..." />
-              <RenderList items={settings.allowedDomains || []} listKey="allowedDomains" icon={Globe} color="blue" onRemove={removeSettingItem} />
-            </div>
-            {/* Users */}
-            <div>
-              <label className="block text-[10px] font-black text-slate-400 uppercase mb-3">Whitelist Emails</label>
-              <input className="w-full p-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl text-xs font-bold outline-none mb-2 dark:text-white focus:ring-2 ring-indigo-500/20" value={inputs.user} onChange={e => setInputs({ ...inputs, user: e.target.value })} onKeyDown={e => e.key === 'Enter' && updateSettingList('allowedUsers', inputs.user)} placeholder="Specific user email..." />
-              <RenderList items={settings.allowedUsers || []} listKey="allowedUsers" icon={Mail} color="emerald" onRemove={removeSettingItem} />
-            </div>
+            )}
+          </div>
+          {/* Domains */}
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase mb-3">Whitelist Domains</label>
+            <input className="w-full p-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl text-xs font-bold outline-none mb-2 dark:text-white focus:ring-2 ring-indigo-500/20" value={inputs.domain} onChange={e => setInputs({ ...inputs, domain: e.target.value })} onKeyDown={e => e.key === 'Enter' && updateSettingList('allowedDomains', inputs.domain)} placeholder="e.g. company.com..." />
+            {settings.allowedDomains && settings.allowedDomains.length > 0 ? (
+              <div className="flex flex-wrap gap-2 mt-4">
+                {settings.allowedDomains.map(item => (
+                  <div key={item} className={`flex items-center gap-2 px-4 py-2 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 text-[10px] font-black text-slate-700 dark:text-slate-300 uppercase tracking-widest`}>
+                    <Globe size={12} className="text-blue-500" /> {item} <button onClick={() => removeSettingItem('allowedDomains', item)} className="ml-2 text-slate-300 hover:text-red-500"><X size={14} /></button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <span className="text-[10px] font-bold text-slate-400 italic block mt-4">No domains whitelisted.</span>
+            )}
           </div>
         </div>
       </div>
 
+      {/* INDIVIDUAL USER CONTROL */}
+      <div className="bg-white dark:bg-slate-800 p-10 rounded-[40px] border border-slate-100 dark:border-slate-700 shadow-xl transition-all">
+        <h3 className="text-lg font-black text-slate-900 dark:text-white mb-8 flex items-center gap-3">
+          <UserCheck className="text-emerald-500" /> Individual User Access
+        </h3>
+
+        {/* User Form */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 items-end">
+          <div className="lg:col-span-2"><label className="block text-[10px] font-black text-slate-400 uppercase mb-2">User Email</label><input className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-none rounded-2xl text-sm font-bold outline-none dark:text-white focus:ring-2 ring-indigo-500/20" value={newUserConfig.email} onChange={e => setNewUserConfig({ ...newUserConfig, email: e.target.value })} placeholder="user@company.com" /></div>
+          <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Permissions</label><select className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-none rounded-2xl text-sm font-bold outline-none dark:text-white focus:ring-2 ring-indigo-500/20" value={newUserConfig.role} onChange={e => setNewUserConfig({ ...newUserConfig, role: e.target.value })}><option value="viewer">Read Only Viewer</option><option value="editor">Full Editor</option></select></div>
+          <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Scope Horizon</label><select className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-none rounded-2xl text-sm font-bold outline-none dark:text-white focus:ring-2 ring-indigo-500/20" value={newUserConfig.scope} onChange={e => setNewUserConfig({ ...newUserConfig, scope: e.target.value })}><option value="all">Global Access</option><option value="scoped">Restricted Silos</option></select></div>
+          <button onClick={saveIndividualUser} disabled={!newUserConfig.email} className="bg-indigo-600 text-white h-[52px] rounded-2xl font-black text-xs shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50">Grant Access</button>
+        </div>
+
+        {newUserConfig.scope === 'scoped' && (
+          <div className="mt-8 p-8 bg-slate-50 dark:bg-slate-900/50 rounded-[2rem] border border-slate-100 dark:border-slate-800 flex flex-wrap gap-3">
+            {productAreas.map(pa => {
+              const isSel = newUserConfig.scopedPAs.includes(pa);
+              return <button key={pa} onClick={() => setNewUserConfig({ ...newUserConfig, scopedPAs: isSel ? newUserConfig.scopedPAs.filter(x => x !== pa) : [...newUserConfig.scopedPAs, pa] })} className={`px-5 py-2.5 rounded-xl text-[10px] font-black border uppercase tracking-widest transition-all ${isSel ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700 hover:border-indigo-400'}`}>{pa}</button>
+            })}
+          </div>
+        )}
+
+        {/* User List Table */}
+        <div className="mt-10 pt-8 border-t border-slate-100 dark:border-slate-700">
+          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Provisioned Users ({(settings.users?.length || 0) + (settings.allowedUsers?.length || 0)})</h4>
+
+          <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+            {/* Legacy Allowed Users Mapping */}
+            {(settings.allowedUsers || []).map(email => (
+              <div key={email} className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-slate-200 dark:bg-slate-800 flex items-center justify-center font-black text-slate-500">{email.charAt(0).toUpperCase()}</div>
+                  <div>
+                    <div className="font-bold text-sm text-slate-800 dark:text-slate-200">{email}</div>
+                    <div className="flex gap-2 mt-1">
+                      <span className="text-[9px] font-black uppercase text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded border border-indigo-100 dark:border-indigo-800">Editor (Legacy)</span>
+                      <span className="text-[9px] font-black uppercase text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">Global</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => { setNewUserConfig({ email, role: 'editor', scope: 'all', scopedPAs: [] }); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-xl transition-colors" title="Upgrade Record"><Edit2 size={16} /></button>
+                  <button onClick={() => removeSettingItem('allowedUsers', email)} className="p-3 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors"><Trash size={16} /></button>
+                </div>
+              </div>
+            ))}
+
+            {/* Configured Users Mapping */}
+            {(settings.users || []).map(u => (
+              <div key={u.email} className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-slate-200 dark:bg-slate-800 flex items-center justify-center font-black text-slate-500">{u.email.charAt(0).toUpperCase()}</div>
+                  <div>
+                    <div className="font-bold text-sm text-slate-800 dark:text-slate-200">{u.email}</div>
+                    <div className="flex gap-2 mt-1 items-center">
+                      <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border ${u.role === 'editor' ? 'text-indigo-600 bg-indigo-50 border-indigo-100 dark:bg-indigo-900/30 dark:border-indigo-800' : 'text-slate-600 bg-slate-200 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300'}`}>{u.role}</span>
+                      <span className="text-[9px] font-black uppercase text-slate-500 bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">{u.scope === 'all' ? 'Global Scope' : `Scoped: ${u.scopedPAs?.length || 0} Areas`}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => { setNewUserConfig(u); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-xl transition-colors" title="Edit Permissions"><Edit2 size={16} /></button>
+                  <button onClick={() => removeIndividualUser(u.email)} className="p-3 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors"><Trash size={16} /></button>
+                </div>
+              </div>
+            ))}
+
+            {(!settings.users || settings.users.length === 0) && (!settings.allowedUsers || settings.allowedUsers.length === 0) && (
+              <div className="text-center py-10 text-xs font-bold text-slate-400 italic">No individual users provisioned yet.</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+
       {/* Group Creator */}
-      <div className="bg-white dark:bg-slate-800 p-10 rounded-[40px] border border-slate-100 dark:border-slate-700 shadow-xl">
-        <h3 className="text-lg font-black text-slate-900 dark:text-white mb-8 flex items-center gap-3"><Layers className="text-indigo-500" /> Define Access Matrix</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-end">
-          <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Matrix Name</label><input className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-none rounded-2xl text-sm font-bold outline-none dark:text-white focus:ring-2 ring-indigo-500/20" value={newGroup.name} onChange={e => setNewGroup({ ...newGroup, name: e.target.value })} placeholder="e.g. Vendors" /></div>
+      <div className="bg-white dark:bg-slate-800 p-10 rounded-[40px] border border-slate-100 dark:border-slate-700 shadow-xl transition-all">
+        <h3 className="text-lg font-black text-slate-900 dark:text-white mb-8 flex items-center gap-3">
+          <Layers className="text-indigo-500" /> {newGroup.id ? 'Edit Group Matrix' : 'Define Group Matrix'}
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 items-end">
+          <div className="lg:col-span-2"><label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Matrix Name</label><input className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-none rounded-2xl text-sm font-bold outline-none dark:text-white focus:ring-2 ring-indigo-500/20" value={newGroup.name} onChange={e => setNewGroup({ ...newGroup, name: e.target.value })} placeholder="e.g. Vendors" /></div>
           <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Permissions</label><select className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-none rounded-2xl text-sm font-bold outline-none dark:text-white focus:ring-2 ring-indigo-500/20" value={newGroup.role} onChange={e => setNewGroup({ ...newGroup, role: e.target.value })}><option value="viewer">Read Only Viewer</option><option value="editor">Full Editor</option></select></div>
           <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Scope Horizon</label><select className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-none rounded-2xl text-sm font-bold outline-none dark:text-white focus:ring-2 ring-indigo-500/20" value={newGroup.scope} onChange={e => setNewGroup({ ...newGroup, scope: e.target.value })}><option value="all">Global Access</option><option value="scoped">Restricted Silos</option></select></div>
-          <button onClick={addGroup} className="bg-indigo-600 text-white h-[52px] rounded-2xl font-black text-xs shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 active:scale-95 transition-all">Construct Matrix</button>
+          <div className="flex gap-2">
+            {newGroup.id && (
+              <button onClick={() => setNewGroup({ id: null, name: '', role: 'viewer', scope: 'all', scopedPAs: [], members: [] })} className="flex-1 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 h-[52px] rounded-2xl font-black text-xs hover:bg-slate-300 dark:hover:bg-slate-600 transition-all">Cancel</button>
+            )}
+            <button onClick={saveGroup} className={`flex-1 text-white h-[52px] rounded-2xl font-black text-xs shadow-lg transition-all active:scale-95 ${newGroup.id ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-500/20'}`}>
+              {newGroup.id ? 'Save Matrix' : 'Construct'}
+            </button>
+          </div>
         </div>
         {newGroup.scope === 'scoped' && (
           <div className="mt-8 p-8 bg-slate-50 dark:bg-slate-900/50 rounded-[2rem] border border-slate-100 dark:border-slate-800 flex flex-wrap gap-3">
@@ -941,26 +1141,42 @@ function AdminView({ settings, onUpdateSettings, productAreas, isSuperAdmin, onP
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {(settings.userGroups || []).map(group => (
-          <div key={group.id} className="bg-white dark:bg-slate-800 p-8 rounded-[40px] border border-slate-100 dark:border-slate-700 shadow-sm flex flex-col">
-            <div className="flex justify-between items-start mb-8">
+          <div key={group.id} className={`bg-white dark:bg-slate-800 p-8 rounded-[40px] border shadow-sm flex flex-col transition-all ${newGroup.id === group.id ? 'border-indigo-400 dark:border-indigo-500 ring-4 ring-indigo-500/10' : 'border-slate-100 dark:border-slate-700'}`}>
+            <div className="flex justify-between items-start mb-6">
               <div>
-                <h4 className="text-2xl font-black text-slate-900 dark:text-white mb-2">{group.name}</h4>
-                <div className="flex gap-3">
+                <h4 className="text-2xl font-black text-slate-900 dark:text-white mb-3">{group.name}</h4>
+                <div className="flex gap-3 items-center">
                   <span className="text-[9px] font-black uppercase text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg border border-indigo-100 dark:border-indigo-800">{group.role}</span>
-                  <span className="text-[9px] font-black uppercase text-slate-500 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700">{group.scope === 'all' ? 'Global' : `Scoped: ${group.scopedPAs?.length || 0}`}</span>
+                  <span className="text-[9px] font-black uppercase text-slate-500 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700">{group.scope === 'all' ? 'Global Scope' : `Scoped: ${group.scopedPAs?.length || 0}`}</span>
                 </div>
               </div>
-              <button onClick={() => onUpdateSettings({ ...settings, userGroups: settings.userGroups.filter(g => g.id !== group.id) })} className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors"><Trash size={18} /></button>
+              <div className="flex gap-2">
+                <button onClick={() => editGroup(group)} className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-xl transition-colors" title="Edit Group"><Edit2 size={18} /></button>
+                <button onClick={() => onUpdateSettings({ ...settings, userGroups: settings.userGroups.filter(g => g.id !== group.id) })} className="p-3 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors" title="Delete Group"><Trash size={18} /></button>
+              </div>
             </div>
+
+            {/* Display PAs if scoped */}
+            {group.scope === 'scoped' && group.scopedPAs && group.scopedPAs.length > 0 && (
+              <div className="mb-6 pb-6 border-b border-slate-100 dark:border-slate-700">
+                <span className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3">Authorized Areas</span>
+                <div className="flex flex-wrap gap-2">
+                  {group.scopedPAs.map(pa => (
+                    <span key={pa} className="px-2 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md text-[9px] font-bold text-slate-600 dark:text-slate-300">{pa}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="mt-auto">
-              <input className="w-full p-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl text-xs font-bold outline-none mb-4 focus:ring-2 ring-indigo-500/20 dark:text-white" placeholder="Type email and press Enter..." onKeyDown={e => {
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Group Roster ({group.members?.length || 0})</label>
+              <input className="w-full p-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl text-xs font-bold outline-none mb-4 focus:ring-2 ring-indigo-500/20 dark:text-white" placeholder="Add emails (comma separated) and press Enter..." onKeyDown={e => {
                 if (e.key === 'Enter' && e.target.value) {
-                  const newGroups = settings.userGroups.map(g => g.id === group.id ? { ...g, members: [...new Set([...(g.members || []), e.target.value.toLowerCase().trim()])] } : g);
-                  onUpdateSettings({ ...settings, userGroups: newGroups });
+                  handleAddMembers(group.id, e.target.value);
                   e.target.value = '';
                 }
               }} />
-              <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+              <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto pr-2">
                 {(group.members || []).map(m => (
                   <div key={m} className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-900/80 rounded-lg text-[10px] font-bold text-slate-700 dark:text-slate-300">{m}<button onClick={() => onUpdateSettings({ ...settings, userGroups: settings.userGroups.map(g => g.id === group.id ? { ...g, members: (g.members || []).filter(x => x !== m) } : g) })} className="hover:text-red-500"><X size={12} /></button></div>
                 ))}
@@ -974,7 +1190,7 @@ function AdminView({ settings, onUpdateSettings, productAreas, isSuperAdmin, onP
   );
 }
 
-// --- Modals & Panels (Main Detailed Views) ---
+// --- Modals & Panels ---
 
 function AnnouncementHistory({ announcements, onClose }) {
   return (
@@ -1007,11 +1223,17 @@ function AnnouncementHistory({ announcements, onClose }) {
 
 function ProjectForm({ project, onClose, onSave, teamMembers, uniquePAs }) {
   const [data, setData] = useState(project || { bugNumber: '', projectName: '', productArea: '', assignedLead: 'Unassigned', status: 'Need Assessment', priority: 'P2', clientETA: '', testerETA: '', projectFolderUrl: '', quoteUrl: '', devices: '' });
+
+  // Update state if project prop changes (important for Clone feature)
+  useEffect(() => {
+    if (project) setData(project);
+  }, [project]);
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 dark:bg-black/60 backdrop-blur-md animate-in fade-in duration-300">
       <div className="w-[550px] bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-500 border-l border-slate-200 dark:border-slate-800">
         <div className="p-10 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900">
-          <h2 className="text-2xl font-black text-slate-900 dark:text-white">{project ? 'Update Full Details' : 'New Project Entry'}</h2>
+          <h2 className="text-2xl font-black text-slate-900 dark:text-white">{project?.id ? 'Update Full Details' : 'New Project Entry'}</h2>
           <button onClick={onClose} className="p-3 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors"><X size={20} /></button>
         </div>
         <div className="flex-1 p-10 space-y-8 overflow-y-auto">
@@ -1022,18 +1244,18 @@ function ProjectForm({ project, onClose, onSave, teamMembers, uniquePAs }) {
           <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Project Descriptor</label><input className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-indigo-500/20 dark:text-white" value={data.projectName} onChange={e => setData({ ...data, projectName: e.target.value })} placeholder="Required..." /></div>
 
           <div className="grid grid-cols-2 gap-6 pt-6 border-t border-slate-100 dark:border-slate-800">
-            <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Assignment</label><select className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none dark:text-white" value={data.assignedLead} onChange={e => setData({ ...data, assignedLead: e.target.value })}>{teamMembers.map(m => <option key={m} value={m}>{m}</option>)}</select></div>
-            <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Phase</label><select className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none dark:text-white" value={data.status} onChange={e => setData({ ...data, status: e.target.value })}>{STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+            <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Assignment</label><select className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none dark:text-white focus:ring-2 ring-indigo-500/20" value={data.assignedLead} onChange={e => setData({ ...data, assignedLead: e.target.value })}>{teamMembers.map(m => <option key={m} value={m}>{m}</option>)}</select></div>
+            <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Phase</label><select className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none dark:text-white focus:ring-2 ring-indigo-500/20" value={data.status} onChange={e => setData({ ...data, status: e.target.value })}>{STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
           </div>
 
           <div className="grid grid-cols-2 gap-6">
-            <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Priority Level</label><select className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none dark:text-white" value={data.priority || 'P2'} onChange={e => setData({ ...data, priority: e.target.value })}>{PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
-            <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Platform / Devices</label><input className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none dark:text-white" value={data.devices || ''} onChange={e => setData({ ...data, devices: e.target.value })} placeholder="e.g. Android/iOS" /></div>
+            <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Priority Level</label><select className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none dark:text-white focus:ring-2 ring-indigo-500/20" value={data.priority || 'P2'} onChange={e => setData({ ...data, priority: e.target.value })}>{PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
+            <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Platform / Devices</label><input className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none dark:text-white focus:ring-2 ring-indigo-500/20" value={data.devices || ''} onChange={e => setData({ ...data, devices: e.target.value })} placeholder="e.g. Android/iOS" /></div>
           </div>
 
           <div className="grid grid-cols-2 gap-6">
-            <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Client Target</label><input type="date" className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none dark:text-white" value={data.clientETA} onChange={e => setData({ ...data, clientETA: e.target.value })} /></div>
-            <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Tester Target</label><input type="date" className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none dark:text-white" value={data.testerETA} onChange={e => setData({ ...data, testerETA: e.target.value })} /></div>
+            <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Client Target</label><input type="date" className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none dark:text-white focus:ring-2 ring-indigo-500/20" value={data.clientETA || ''} onChange={e => setData({ ...data, clientETA: e.target.value })} /></div>
+            <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Tester Target</label><input type="date" className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none dark:text-white focus:ring-2 ring-indigo-500/20" value={data.testerETA || ''} onChange={e => setData({ ...data, testerETA: e.target.value })} /></div>
           </div>
 
           <div className="pt-6 border-t border-slate-100 dark:border-slate-800 space-y-6">
@@ -1043,23 +1265,26 @@ function ProjectForm({ project, onClose, onSave, teamMembers, uniquePAs }) {
         </div>
         <div className="p-8 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900 flex justify-end gap-4">
           <button onClick={onClose} className="px-6 py-4 text-slate-500 font-black text-xs hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl transition-colors">Cancel</button>
-          <button onClick={() => onSave(data)} disabled={!data.projectName} className="bg-indigo-600 text-white px-10 py-4 rounded-2xl font-black text-xs shadow-lg shadow-indigo-600/30 hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed">Save Full Record</button>
+          <button onClick={() => onSave(data)} disabled={!data.projectName} className="bg-indigo-600 text-white px-10 py-4 rounded-2xl font-black text-xs shadow-lg shadow-indigo-600/30 hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed">Save to Database</button>
         </div>
       </div>
     </div>
   );
 }
 
-function ProjectDetails({ project, onClose, onEdit, onUpdate, isAdmin, canEdit, onDelete }) {
+function ProjectDetails({ project, onClose, onEdit, onClone, onUpdate, isAdmin, canEdit, currentUserDisplayName }) {
   const [comment, setComment] = useState('');
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 dark:bg-black/60 backdrop-blur-md animate-in fade-in duration-300">
       <div className="w-[650px] bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-500 border-l border-slate-200 dark:border-slate-800">
+
+        {/* Detail Panel Header */}
         <div className="p-10 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900 relative">
           <button onClick={onClose} className="absolute top-8 right-8 p-3 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors"><X size={20} /></button>
 
           <div className="flex items-center gap-3 mb-4">
-            <div className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1 rounded-lg">{project.bugNumber || 'DRAFT'}</div>
+            <div className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1 rounded-lg border border-indigo-100 dark:border-indigo-800/50">{project.bugNumber || 'DRAFT'}</div>
             {project.priority && (
               <div className={`text-[10px] font-black px-3 py-1 rounded-lg border uppercase tracking-widest ${getPriorityColor(project.priority)}`}>
                 {project.priority}
@@ -1074,47 +1299,79 @@ function ProjectDetails({ project, onClose, onEdit, onUpdate, isAdmin, canEdit, 
             <span className="text-xs text-slate-400 font-bold flex items-center gap-2"><div className="w-6 h-6 rounded bg-slate-200 dark:bg-slate-700 text-[10px] flex items-center justify-center text-slate-600 dark:text-slate-300">{String(project.assignedLead || 'U').charAt(0)}</div>{project.assignedLead}</span>
           </div>
 
-          <div className="flex gap-4 items-center">
-            {canEdit && <button onClick={onEdit} className="px-6 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-black text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition-all shadow-sm"><Edit2 size={16} /> Edit Full Record</button>}
+          <div className="flex gap-3 items-center">
+            {canEdit && (
+              <>
+                <button onClick={onEdit} className="px-5 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-black text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition-all shadow-sm"><Edit2 size={16} /> Edit</button>
+                <button onClick={onClone} className="px-5 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-black text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition-all shadow-sm" title="Duplicate Project"><Copy size={16} /> Clone</button>
+              </>
+            )}
             <span className={`px-6 py-3 rounded-2xl text-xs font-black border flex items-center gap-2 ${getStatusStyle(project.status).bg} ${getStatusStyle(project.status).text} ${getStatusStyle(project.status).border}`}><span className={`w-2 h-2 rounded-full ${getStatusStyle(project.status).dot}`}></span>{project.status}</span>
             {isAdmin && <button onClick={() => onDelete(project.id)} className="ml-auto p-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors"><Trash2 size={20} /></button>}
           </div>
         </div>
 
+        {/* Detail Panel Body */}
         <div className="flex-1 overflow-y-auto p-10 space-y-12">
 
           {/* Quick Info & Links Grid */}
-          <div className="grid grid-cols-2 gap-6 p-8 bg-slate-50 dark:bg-slate-800/50 rounded-[2rem] border border-slate-100 dark:border-slate-800">
-            <div><div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Client ETA</div><div className="text-sm font-bold dark:text-white flex items-center gap-2"><Clock size={16} className="text-indigo-500" /> {project.clientETA || 'Unscheduled'}</div></div>
-            <div><div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Tester ETA</div><div className="text-sm font-bold dark:text-white flex items-center gap-2"><Clock size={16} className="text-indigo-500" /> {project.testerETA || 'Unscheduled'}</div></div>
-            <div><div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Platform / Devices</div><div className="text-sm font-bold dark:text-white flex items-center gap-2"><Smartphone size={16} className="text-slate-400" /> {project.devices || 'N/A'}</div></div>
-            <div className="flex flex-col gap-2 justify-center">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 p-8 bg-slate-50 dark:bg-slate-800/50 rounded-[2rem] border border-slate-100 dark:border-slate-800">
+            <div className="col-span-2 md:col-span-1">
+              <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Schedule</div>
+              <div className="space-y-2">
+                <div className="text-xs font-bold dark:text-white flex items-center gap-2" title="Client ETA"><Clock size={14} className="text-indigo-500" /> {project.clientETA || 'TBD'}</div>
+                <div className="text-xs font-bold dark:text-slate-300 opacity-80 flex items-center gap-2" title="Tester ETA"><Clock size={14} className="text-slate-400" /> {project.testerETA || 'TBD'}</div>
+              </div>
+            </div>
+
+            <div className="col-span-2 md:col-span-1">
+              <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Platform</div>
+              <div className="text-xs font-bold dark:text-white flex items-center gap-2 mt-2"><Smartphone size={16} className="text-slate-400" /> {project.devices || 'N/A'}</div>
+            </div>
+
+            <div className="col-span-2 md:col-span-1">
+              <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Quote Status</div>
+              <div className="flex gap-2">
+                <button disabled={!canEdit} onClick={() => onUpdate(project.id, { quoteReady: !project.quoteReady })} className={`flex-1 py-1.5 rounded border text-[9px] font-black transition-colors ${project.quoteReady ? 'bg-green-100 border-green-300 text-green-800 dark:bg-green-900/30 dark:border-green-800 dark:text-green-400' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400'}`}>READY</button>
+                <button disabled={!canEdit} onClick={() => onUpdate(project.id, { quoteSent: !project.quoteSent })} className={`flex-1 py-1.5 rounded border text-[9px] font-black transition-colors ${project.quoteSent ? 'bg-blue-100 border-blue-300 text-blue-800 dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-400' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400'}`}>SENT</button>
+              </div>
+            </div>
+
+            <div className="col-span-2 md:col-span-1 flex flex-col gap-3 justify-center border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-700 pt-4 md:pt-0 md:pl-4">
               {project.projectFolderUrl ? (
-                <a href={project.projectFolderUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[11px] font-black text-indigo-600 hover:underline"><Folder size={14} /> Access Project Folder <ExternalLink size={12} /></a>
+                <a href={project.projectFolderUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[10px] font-black text-indigo-600 dark:text-indigo-400 hover:underline"><Folder size={14} /> Access Folder <ExternalLink size={12} /></a>
               ) : (
-                <span className="flex items-center gap-2 text-[11px] font-bold text-slate-400"><Folder size={14} /> No Folder Linked</span>
+                <span className="flex items-center gap-2 text-[10px] font-bold text-slate-400"><Folder size={14} /> No Folder Linked</span>
               )}
               {project.quoteUrl ? (
-                <a href={project.quoteUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[11px] font-black text-indigo-600 hover:underline"><FileText size={14} /> Access Quote Doc <ExternalLink size={12} /></a>
+                <a href={project.quoteUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[10px] font-black text-indigo-600 dark:text-indigo-400 hover:underline"><FileText size={14} /> Quote Doc <ExternalLink size={12} /></a>
               ) : (
-                <span className="flex items-center gap-2 text-[11px] font-bold text-slate-400"><FileText size={14} /> No Quote Linked</span>
+                <span className="flex items-center gap-2 text-[10px] font-bold text-slate-400"><FileText size={14} /> No Quote Linked</span>
               )}
             </div>
           </div>
 
-          <div className="space-y-6">
-            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2.5"><Globe2 size={16} className="text-indigo-600" /> Locale Footprint Matrix</h3>
-            <div className="grid grid-cols-4 gap-3">
+          <div className="space-y-4">
+            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2.5"><Globe2 size={16} className="text-indigo-600" /> Dense Locale Matrix</h3>
+            <div className="flex flex-wrap gap-2">
               {AVAILABLE_LOCALES.map(loc => {
                 const current = (project.locales || []).find(l => l.name === loc);
+                const statusColors = {
+                  'Passed': 'bg-green-500 ring-green-500/20 text-green-800 border-green-200 dark:border-green-800 dark:bg-green-900/30 dark:text-green-400',
+                  'Failed': 'bg-red-500 ring-red-500/20 text-red-800 border-red-200 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400',
+                  'Pending': 'bg-slate-300 ring-transparent text-slate-500 border-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400'
+                };
+                const theme = statusColors[current?.status] || statusColors['Pending'];
+                const dotColor = current?.status === 'Passed' ? 'bg-green-500' : current?.status === 'Failed' ? 'bg-red-500' : 'bg-slate-300 dark:bg-slate-600';
+
                 return (
                   <button key={loc} disabled={!canEdit} onClick={() => {
                     const next = current?.status === 'Passed' ? 'Failed' : current?.status === 'Failed' ? 'Pending' : 'Passed';
                     const list = current ? (project.locales || []).map(l => l.name === loc ? { ...l, status: next } : l) : [...(project.locales || []), { name: loc, status: 'Passed' }];
                     onUpdate(project.id, { locales: list });
-                  }} className={`text-center py-4 px-2 rounded-2xl border text-[10px] font-black transition-all ${current?.status === 'Passed' ? 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-400' : current?.status === 'Failed' ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400 hover:border-indigo-300'}`}>
-                    <div className="mb-1 text-[11px]">{loc}</div>
-                    <div className="opacity-60">{current?.status || 'N/A'}</div>
+                  }} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-black transition-all hover:-translate-y-0.5 hover:shadow-sm ${theme}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${dotColor} ring-2 ring-offset-1 ring-offset-transparent ${theme.split(' ')[1]}`}></span>
+                    {loc}
                   </button>
                 );
               })}
@@ -1122,9 +1379,9 @@ function ProjectDetails({ project, onClose, onEdit, onUpdate, isAdmin, canEdit, 
           </div>
 
           <div className="space-y-6">
-            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2.5"><MessageSquare size={16} className="text-indigo-600" /> Audit & Comm Log</h3>
+            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2.5"><MessageSquare size={16} className="text-indigo-600" /> Audit Log & Rich Text Comments</h3>
             <div className="flex gap-3">
-              <input className="flex-1 p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-medium outline-none focus:ring-2 ring-indigo-500/20 dark:text-white" value={comment} onChange={e => setComment(e.target.value)} placeholder="Append secure note..." onKeyDown={e => { if (e.key === 'Enter' && comment) { onUpdate(project.id, { comments: [...(project.comments || []), { id: Date.now(), author: currentUserDisplayName, text: comment, timestamp: Date.now() }] }); setComment(''); } }} />
+              <input className="flex-1 p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-medium outline-none focus:ring-2 ring-indigo-500/20 dark:text-white" value={comment} onChange={e => setComment(e.target.value)} placeholder="Type update (supports **bold**, *italic*, [links](url))..." onKeyDown={e => { if (e.key === 'Enter' && comment) { onUpdate(project.id, { comments: [...(project.comments || []), { id: Date.now(), author: currentUserDisplayName, text: comment, timestamp: Date.now() }] }); setComment(''); } }} />
               <button onClick={() => { if (comment) { onUpdate(project.id, { comments: [...(project.comments || []), { id: Date.now(), author: currentUserDisplayName, text: comment, timestamp: Date.now() }] }); setComment(''); } }} className="bg-indigo-600 text-white p-4 rounded-2xl shadow-lg shadow-indigo-600/20 hover:bg-indigo-700 active:scale-95 transition-all"><Send size={20} /></button>
             </div>
             <div className="space-y-4">
@@ -1134,9 +1391,14 @@ function ProjectDetails({ project, onClose, onEdit, onUpdate, isAdmin, canEdit, 
                     <span className="flex items-center gap-2"><div className="w-5 h-5 rounded bg-slate-200 dark:bg-slate-700 text-[10px] flex items-center justify-center text-slate-600 dark:text-slate-300">{String(c.author || 'U').charAt(0)}</div>{c.author}</span>
                     <span>{new Date(c.timestamp).toLocaleString()}</span>
                   </div>
-                  <div className="text-sm text-slate-700 dark:text-slate-300 font-medium leading-relaxed">{c.text}</div>
+                  <div className="text-sm text-slate-700 dark:text-slate-300 font-medium leading-relaxed whitespace-pre-wrap">
+                    {renderRichText(c.text)}
+                  </div>
                 </div>
               ))}
+              {(!project.comments || project.comments.length === 0) && (
+                <div className="text-center py-10 text-xs font-bold text-slate-400 italic">No updates logged.</div>
+              )}
             </div>
           </div>
         </div>
@@ -1163,7 +1425,9 @@ function ActivityFeed({ activities, onClose, onOpen }) {
                   <div className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">{act.projectName}</div>
                   <div className="text-[9px] font-bold text-slate-400">{new Date(act.timestamp).toLocaleDateString()}</div>
                 </div>
-                <div className="text-sm text-slate-700 dark:text-slate-300 mb-3 font-medium line-clamp-3">{act.text}</div>
+                <div className="text-sm text-slate-700 dark:text-slate-300 mb-3 font-medium line-clamp-3">
+                  {renderRichText(act.text)}
+                </div>
                 <div className="text-[9px] font-black text-slate-400 uppercase tracking-tighter flex items-center gap-2">
                   <div className="w-4 h-4 rounded bg-slate-200 dark:bg-slate-700 flex items-center justify-center">{String(act.author || 'U').charAt(0)}</div> Logged by {act.author}
                 </div>
